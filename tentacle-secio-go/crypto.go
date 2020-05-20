@@ -4,13 +4,14 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"errors"
+	"hash"
 
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // StreamCipher a cipher of aead stream
 type StreamCipher interface {
-	Encrypt(input []byte) ([]byte, error)
+	Encrypt(input []byte) []byte
 	Decrypt(input []byte) ([]byte, error)
 }
 
@@ -19,10 +20,10 @@ type metaCipher struct {
 	aead  cipher.AEAD
 }
 
-func (c *metaCipher) Encrypt(input []byte) ([]byte, error) {
+func (c *metaCipher) Encrypt(input []byte) []byte {
 	nonceAdvance(c.nonce)
 	output := c.aead.Seal(nil, c.nonce, input, nil)
-	return output, nil
+	return output
 }
 
 func (c *metaCipher) Decrypt(input []byte) ([]byte, error) {
@@ -83,6 +84,13 @@ func Chacha20Poly1305(psk []byte) (StreamCipher, error) {
 	return &metaCipher{nonce: nonce, aead: aead}, nil
 }
 
+// [0, 0, 0, 0]
+// [1, 0, 0, 0]
+// ...
+// [255, 0, 0, 0]
+// [0, 1, 0, 0]
+// [1, 1, 0, 0]
+// ...
 func nonceAdvance(b []byte) {
 	for i := range b {
 		if 255 == b[i] {
@@ -91,5 +99,41 @@ func nonceAdvance(b []byte) {
 			b[i]++
 			return
 		}
+	}
+}
+
+// Custom algorithm translated from reference implementations. Needs to be the same algorithm
+// amongst all implementations.
+func stretchKey(hash hash.Hash, result []byte) {
+	seed := []byte("key expansion")
+
+	// never error here
+	hash.Write(seed)
+	a := hash.Sum(nil)
+
+	j := 0
+	for j < len(result) {
+		hash.Reset()
+
+		hash.Write(a)
+		hash.Write(seed)
+
+		b := hash.Sum(nil)
+
+		todo := len(b)
+
+		if j+todo > len(result) {
+			todo = len(result) - j
+		}
+
+		copy(result[j:j+todo], b)
+
+		j += todo
+
+		hash.Reset()
+
+		hash.Write(a)
+
+		a = hash.Sum(nil)
 	}
 }
