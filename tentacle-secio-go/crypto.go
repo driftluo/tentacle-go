@@ -3,9 +3,13 @@ package secio
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/elliptic"
+	"crypto/rand"
 	"errors"
+	"fmt"
 	"hash"
 
+	sha256 "github.com/minio/sha256-simd"
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
@@ -136,4 +140,52 @@ func stretchKey(hash hash.Hash, result []byte) {
 
 		a = hash.Sum(nil)
 	}
+}
+
+// GenSharedKey generates the shared key from a given private key
+type GenSharedKey func([]byte) ([]byte, error)
+
+// GenerateEphemeralKeyPair returns an ephemeral public key and returns a function that will compute
+// the shared secret key.
+func GenerateEphemeralKeyPair(curveName string) ([]byte, GenSharedKey, error) {
+	var curve elliptic.Curve
+
+	switch curveName {
+	case "P-256":
+		curve = elliptic.P256()
+	case "P-384":
+		curve = elliptic.P384()
+	default:
+		return nil, nil, fmt.Errorf("unknown curve name")
+	}
+
+	priv, x, y, err := elliptic.GenerateKey(curve, rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pubKey := elliptic.Marshal(curve, x, y)
+
+	done := func(theirPub []byte) ([]byte, error) {
+		// Verify and unpack node's public key.
+		x, y := elliptic.Unmarshal(curve, theirPub)
+		if x == nil {
+			return nil, fmt.Errorf("malformed public key: %d %v", len(theirPub), theirPub)
+		}
+
+		if !curve.IsOnCurve(x, y) {
+			return nil, errors.New("invalid public key")
+		}
+
+		// Generate shared secret.
+		secret, _ := curve.ScalarMult(x, y, priv)
+
+		return secret.Bytes(), nil
+	}
+
+	return pubKey, done, nil
+}
+
+func hashSha256(data []byte) [32]byte {
+	return sha256.Sum256(data)
 }
