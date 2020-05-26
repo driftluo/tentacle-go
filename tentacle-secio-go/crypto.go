@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"math"
 
 	sha256 "github.com/minio/sha256-simd"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -97,7 +98,7 @@ func Chacha20Poly1305(psk []byte) (StreamCipher, error) {
 // ...
 func nonceAdvance(b []byte) {
 	for i := range b {
-		if 255 == b[i] {
+		if math.MaxUint8 == b[i] {
 			b[i] = 0
 		} else {
 			b[i]++

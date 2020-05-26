@@ -20,7 +20,11 @@ type Key interface {
 	// Equals checks whether two PubKeys are the same
 	Equals(Key) bool
 
+	// TypeID return molecule union ID
 	TypeID() Number
+
+	// PeerID generate a peer id from key
+	PeerID() PeerID
 }
 
 // PrivKey represents a private key that can be used to generate a public key and sign data
@@ -108,6 +112,11 @@ func (p *secp256k1PrivateKey) TypeID() Number {
 	return Number(0)
 }
 
+// PeerID generate a peer id from key
+func (p *secp256k1PrivateKey) PeerID() PeerID {
+	return p.GenPublic().PeerID()
+}
+
 // Verify compares a signature against the input message
 func (k *secp256k1PublicKey) Verify(msg []byte, sigRaw []byte) error {
 	if len(msg) != 32 {
@@ -144,6 +153,11 @@ func (k *secp256k1PublicKey) Equals(other Key) bool {
 // TypeId return molecule union ID
 func (k *secp256k1PublicKey) TypeID() Number {
 	return Number(0)
+}
+
+// PeerID generate a peer id from key
+func (k *secp256k1PublicKey) PeerID() PeerID {
+	return fromSeed(k.Bytes())
 }
 
 func basicEquals(k1, k2 Key) bool {
