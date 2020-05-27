@@ -2,6 +2,7 @@ package secio
 
 import (
 	"crypto/subtle"
+	"errors"
 	"fmt"
 
 	// may replace by std/crypto in future
@@ -44,6 +45,9 @@ type PubKey interface {
 
 	// Verify that 'sig' is the signed hash
 	Verify(message []byte, sig []byte) error
+
+	// Encode return molecule-encodes bytes
+	Encode() []byte
 }
 
 // GenerateSecp256k1 return a random Secp256k1 private key
@@ -133,6 +137,37 @@ func (k *secp256k1PublicKey) Verify(msg []byte, sigRaw []byte) error {
 	}
 
 	return fmt.Errorf("verify fail")
+}
+
+// Encode return molecule-encodes bytes
+func (k *secp256k1PublicKey) Encode() []byte {
+	raw := k.Bytes()
+	b := make([]Byte, len(raw))
+	for i, v := range raw {
+		b[i] = NewByte(v)
+	}
+	secp := PublicKeyUnionFromSecp256k1(NewSecp256k1Builder().Set(b).Build())
+	pub := NewPublicKeyBuilder().Set(secp).Build()
+	return pub.AsSlice()
+}
+
+// DecodeToSecpPub try parse bytes from molecule-encodes byte
+func DecodeToSecpPub(data []byte) (PubKey, error) {
+	k, err := PublicKeyFromSlice(data, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if k.ItemID() != Number(0) {
+		return nil, errors.New("not secp256k1 pubkey")
+	}
+
+	s, err := btcec.ParsePubKey(k.ToUnion().IntoSecp256k1().RawData(), btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
+	return (*secp256k1PublicKey)(s), nil
 }
 
 // Bytes returns the bytes of the key

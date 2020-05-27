@@ -30,3 +30,20 @@ func TestSecp256k1BasicSignAndVerify(t *testing.T) {
 		t.Fatal("signature matched and shouldn't")
 	}
 }
+
+func TestSecp256k1MoleculeEncodeDecode(t *testing.T) {
+	priv := GenerateSecp256k1()
+	pubkey := priv.GenPublic()
+
+	mol := pubkey.Encode()
+
+	pub, err := DecodeToSecpPub(mol)
+
+	if err != nil {
+		t.Fatal("decode from molecule should success")
+	}
+
+	if !pubkey.Equals(pub) {
+		t.Fatal("pubkey should equal")
+	}
+}
