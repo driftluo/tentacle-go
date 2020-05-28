@@ -690,23 +690,6 @@ func (s *Propose) Len() uint {
 func (s *Propose) IsEmpty() bool {
 	return s.Len() == 0
 }
-func (s *Propose) FieldOffsets() [][4]byte {
-	// Preventing index out-of-bounds array accesses when not alignment
-	dataSize := len(s.inner[HeaderSizeUint:]) - len(s.inner[HeaderSizeUint:])%4
-	cap := dataSize / 4
-	ret := make([][4]byte, cap)
-	var firstIdx, secondIdex int
-	for i := 0; i < dataSize; i++ {
-		firstIdx = i >> 2
-		if firstIdx > cap {
-			break
-		}
-		secondIdex = i % 4
-		ret[firstIdx][secondIdex] = s.inner[HeaderSizeUint:][firstIdx*4:][secondIdex]
-	}
-	return ret
-}
-
 func (s *Propose) CountExtraFields() uint {
 	return s.FieldCount() - 5
 }
@@ -716,39 +699,34 @@ func (s *Propose) hasExtraFields() bool {
 }
 
 func (s *Propose) Rand() *Bytes {
-	offsets := s.FieldOffsets()
-	start := unpackNumber(offsets[0][:])
-	end := unpackNumber(offsets[1][:])
+	start := unpackNumber(s.inner[4:])
+	end := unpackNumber(s.inner[8:])
 	return BytesFromSliceUnchecked(s.inner[start:end])
 }
 
 func (s *Propose) Pubkey() *Bytes {
-	offsets := s.FieldOffsets()
-	start := unpackNumber(offsets[1][:])
-	end := unpackNumber(offsets[2][:])
+	start := unpackNumber(s.inner[8:])
+	end := unpackNumber(s.inner[12:])
 	return BytesFromSliceUnchecked(s.inner[start:end])
 }
 
 func (s *Propose) Exchanges() *String {
-	offsets := s.FieldOffsets()
-	start := unpackNumber(offsets[2][:])
-	end := unpackNumber(offsets[3][:])
+	start := unpackNumber(s.inner[12:])
+	end := unpackNumber(s.inner[16:])
 	return StringFromSliceUnchecked(s.inner[start:end])
 }
 
 func (s *Propose) Ciphers() *String {
-	offsets := s.FieldOffsets()
-	start := unpackNumber(offsets[3][:])
-	end := unpackNumber(offsets[4][:])
+	start := unpackNumber(s.inner[16:])
+	end := unpackNumber(s.inner[20:])
 	return StringFromSliceUnchecked(s.inner[start:end])
 }
 
 func (s *Propose) Hashes() *String {
 	var ret *String
-	offsets := s.FieldOffsets()
-	start := unpackNumber(offsets[0][:])
+	start := unpackNumber(s.inner[20:])
 	if s.hasExtraFields() {
-		end := unpackNumber(offsets[1][:])
+		end := unpackNumber(s.inner[24:])
 		ret = StringFromSliceUnchecked(s.inner[start:end])
 	} else {
 		ret = StringFromSliceUnchecked(s.inner[start:])
@@ -903,23 +881,6 @@ func (s *Exchange) Len() uint {
 func (s *Exchange) IsEmpty() bool {
 	return s.Len() == 0
 }
-func (s *Exchange) FieldOffsets() [][4]byte {
-	// Preventing index out-of-bounds array accesses when not alignment
-	dataSize := len(s.inner[HeaderSizeUint:]) - len(s.inner[HeaderSizeUint:])%4
-	cap := dataSize / 4
-	ret := make([][4]byte, cap)
-	var firstIdx, secondIdex int
-	for i := 0; i < dataSize; i++ {
-		firstIdx = i >> 2
-		if firstIdx > cap {
-			break
-		}
-		secondIdex = i % 4
-		ret[firstIdx][secondIdex] = s.inner[HeaderSizeUint:][firstIdx*4:][secondIdex]
-	}
-	return ret
-}
-
 func (s *Exchange) CountExtraFields() uint {
 	return s.FieldCount() - 2
 }
@@ -929,18 +890,16 @@ func (s *Exchange) hasExtraFields() bool {
 }
 
 func (s *Exchange) Epubkey() *Bytes {
-	offsets := s.FieldOffsets()
-	start := unpackNumber(offsets[0][:])
-	end := unpackNumber(offsets[1][:])
+	start := unpackNumber(s.inner[4:])
+	end := unpackNumber(s.inner[8:])
 	return BytesFromSliceUnchecked(s.inner[start:end])
 }
 
 func (s *Exchange) Signature() *Bytes {
 	var ret *Bytes
-	offsets := s.FieldOffsets()
-	start := unpackNumber(offsets[0][:])
+	start := unpackNumber(s.inner[8:])
 	if s.hasExtraFields() {
-		end := unpackNumber(offsets[1][:])
+		end := unpackNumber(s.inner[12:])
 		ret = BytesFromSliceUnchecked(s.inner[start:end])
 	} else {
 		ret = BytesFromSliceUnchecked(s.inner[start:])

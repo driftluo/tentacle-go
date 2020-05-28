@@ -13,6 +13,9 @@ type secp256k1PrivateKey btcec.PrivateKey
 
 type secp256k1PublicKey btcec.PublicKey
 
+// from molecule generate code
+const typeID = Number(0)
+
 // Key represents a crypto key that can be compared to another key
 type Key interface {
 	// Bytes returns raw bytes
@@ -141,11 +144,7 @@ func (k *secp256k1PublicKey) Verify(msg []byte, sigRaw []byte) error {
 
 // Encode return molecule-encodes bytes
 func (k *secp256k1PublicKey) Encode() []byte {
-	raw := k.Bytes()
-	b := make([]Byte, len(raw))
-	for i, v := range raw {
-		b[i] = NewByte(v)
-	}
+	b := IntoByteslice(k.Bytes())
 	secp := PublicKeyUnionFromSecp256k1(NewSecp256k1Builder().Set(b).Build())
 	pub := NewPublicKeyBuilder().Set(secp).Build()
 	return pub.AsSlice()
@@ -158,7 +157,7 @@ func DecodeToSecpPub(data []byte) (PubKey, error) {
 		return nil, err
 	}
 
-	if k.ItemID() != Number(0) {
+	if k.ItemID() != typeID {
 		return nil, errors.New("not secp256k1 pubkey")
 	}
 
@@ -187,7 +186,7 @@ func (k *secp256k1PublicKey) Equals(other Key) bool {
 
 // TypeId return molecule union ID
 func (k *secp256k1PublicKey) TypeID() Number {
-	return Number(0)
+	return typeID
 }
 
 // PeerID generate a peer id from key
