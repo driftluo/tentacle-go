@@ -144,7 +144,7 @@ func (k *secp256k1PublicKey) Verify(msg []byte, sigRaw []byte) error {
 
 // Encode return molecule-encodes bytes
 func (k *secp256k1PublicKey) Encode() []byte {
-	b := IntoByteslice(k.Bytes())
+	b := intoByteslice(k.Bytes())
 	secp := PublicKeyUnionFromSecp256k1(NewSecp256k1Builder().Set(b).Build())
 	pub := NewPublicKeyBuilder().Set(secp).Build()
 	return pub.AsSlice()

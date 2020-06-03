@@ -2,21 +2,21 @@ package secio
 
 import "unsafe"
 
-// IntoBytes convert to molecule bytes
-func IntoBytes(b []byte) Bytes {
-	tmp := IntoByteslice(b)
+// intoBytes convert to molecule bytes
+func intoBytes(b []byte) Bytes {
+	tmp := intoByteslice(b)
 	return NewBytesBuilder().Set(tmp).Build()
 }
 
-// IntoString convert to molecule string
-func IntoString(s string) String {
-	b := str2bytes(s)
-	tmp := IntoByteslice(b)
+// intoString convert to molecule string
+func intoString(s string) String {
+	b := Str2bytes(s)
+	tmp := intoByteslice(b)
 	return NewStringBuilder().Set(tmp).Build()
 }
 
-// IntoByteslice convert to molecule byte slice
-func IntoByteslice(b []byte) []Byte {
+// intoByteslice convert to molecule byte slice
+func intoByteslice(b []byte) []Byte {
 	tmp := make([]Byte, len(b))
 	for i, v := range b {
 		tmp[i] = NewByte(v)
@@ -24,14 +24,16 @@ func IntoByteslice(b []byte) []Byte {
 	return tmp
 }
 
+// Str2bytes convert to bytes in place
 // https://www.cnblogs.com/shuiyuejiangnan/p/9707066.html
-func str2bytes(s string) []byte {
+func Str2bytes(s string) []byte {
 	x := (*[2]uintptr)(unsafe.Pointer(&s))
 	h := [3]uintptr{x[0], x[1], x[1]}
 	return *(*[]byte)(unsafe.Pointer(&h))
 }
 
-func bytes2str(b []byte) string {
+// Bytes2str convert to string in place
+func Bytes2str(b []byte) string {
 	return *(*string)(unsafe.Pointer(&b))
 }
 
@@ -45,15 +47,15 @@ type propose struct {
 }
 
 func (p propose) encode() []byte {
-	rand := IntoBytes(p.rand)
+	rand := intoBytes(p.rand)
 
-	pubkey := IntoBytes(p.pubkey)
+	pubkey := intoBytes(p.pubkey)
 
-	exchange := IntoString(p.exchange)
+	exchange := intoString(p.exchange)
 
-	ciphers := IntoString(p.ciphers)
+	ciphers := intoString(p.ciphers)
 
-	hashes := IntoString(p.hashes)
+	hashes := intoString(p.hashes)
 
 	pr := NewProposeBuilder().Rand(rand).Pubkey(pubkey).Exchanges(exchange).Ciphers(ciphers).Hashes(hashes).Build()
 
@@ -69,9 +71,9 @@ func decodeToPropose(b []byte) (*propose, error) {
 	propose := new(propose)
 	propose.rand = pr.Rand().RawData()
 	propose.pubkey = pr.Pubkey().RawData()
-	propose.exchange = bytes2str(pr.Exchanges().RawData())
-	propose.ciphers = bytes2str(pr.Ciphers().RawData())
-	propose.hashes = bytes2str(pr.Hashes().RawData())
+	propose.exchange = Bytes2str(pr.Exchanges().RawData())
+	propose.ciphers = Bytes2str(pr.Ciphers().RawData())
+	propose.hashes = Bytes2str(pr.Hashes().RawData())
 
 	return propose, nil
 }
@@ -82,8 +84,8 @@ type exchange struct {
 }
 
 func (e exchange) encode() []byte {
-	epub := IntoBytes(e.epubkey)
-	sig := IntoBytes(e.signature)
+	epub := intoBytes(e.epubkey)
+	sig := intoBytes(e.signature)
 
 	ex := NewExchangeBuilder().Epubkey(epub).Signature(sig).Build()
 
