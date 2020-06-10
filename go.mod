@@ -1,4 +1,4 @@
-module github.com/driftluo/tentacle-go/tentacle-secio-go
+module github.com/driftluo/tentacle-go
 
 go 1.14
 
