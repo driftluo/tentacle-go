@@ -34,12 +34,12 @@ func (c *metaCipher) Encrypt(input []byte) []byte {
 func (c *metaCipher) Decrypt(input []byte) ([]byte, error) {
 	// input length must greater than aead tag len
 	if len(input) < c.aead.Overhead() {
-		return nil, errors.New("short packet")
+		return nil, ErrFrameTooShort
 	}
 	nonceAdvance(c.nonce)
 	output, err := c.aead.Open(nil, c.nonce, input, nil)
 	if err != nil {
-		return nil, err
+		return nil, ErrDecipherFail
 	}
 	return output, nil
 }

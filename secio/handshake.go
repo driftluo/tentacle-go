@@ -110,17 +110,17 @@ func (c *Config) handshake(conn net.Conn) (*SecureConn, error) {
 	remotePropose, err := decodeToPropose(remoteProposeBytes)
 
 	if err != nil {
-		return nil, err
+		return nil, ErrInvalidData
 	}
 
 	remotePubkey, err := DecodeToSecpPub(remotePropose.pubkey)
 
 	if err != nil {
-		return nil, err
+		return nil, ErrInvalidData
 	}
 
 	if localPubkey.Equals(remotePubkey) {
-		return nil, errors.New("ConnectSelf")
+		return nil, ErrConnectSelf
 	}
 
 	// use raw pubkey bytes and nonce to decide order
@@ -145,7 +145,7 @@ func (c *Config) handshake(conn net.Conn) (*SecureConn, error) {
 
 	epubkey, genSecret, err := GenerateEphemeralKeyPair(chosenExchange)
 	if err != nil {
-		return nil, err
+		return nil, ErrEphemeralKeyGenerationFailed
 	}
 
 	dataToSign := new(bytes.Buffer)
@@ -175,7 +175,7 @@ func (c *Config) handshake(conn net.Conn) (*SecureConn, error) {
 
 	remoteExchange, err := decodeToExchange(remoteExchangeBytes)
 	if err != nil {
-		return nil, err
+		return nil, ErrInvalidData
 	}
 
 	dataToVerify := new(bytes.Buffer)
@@ -186,12 +186,12 @@ func (c *Config) handshake(conn net.Conn) (*SecureConn, error) {
 	remoteMsg := hashSha256(dataToVerify.Bytes())
 
 	if err = remotePubkey.Verify(remoteMsg[:], remoteExchange.signature); err != nil {
-		return nil, err
+		return nil, ErrVerificationFail
 	}
 
 	keyMaterial, err := genSecret(remoteExchange.epubkey)
 	if err != nil {
-		return nil, err
+		return nil, ErrSecretGenerationFailed
 	}
 
 	localKey, remoteKey, err := genDoubleKey(chosenCipher, chosenHash, order, keyMaterial)

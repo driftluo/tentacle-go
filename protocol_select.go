@@ -138,6 +138,9 @@ type info struct {
 	fn    SelectFn
 }
 
+/// Performs a handshake on the given socket.
+///
+/// Select the protocol version, return the protocol name, plus the version.
 func serverSelect(conn io.ReadWriter, protoInfos map[string]info) (string, string, error) {
 	socket := msgio.Combine(msgio.NewWriter(conn), msgio.NewReader(conn))
 

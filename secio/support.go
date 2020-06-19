@@ -1,7 +1,6 @@
 package secio
 
 import (
-	"errors"
 	"strings"
 )
 
@@ -54,7 +53,7 @@ func selectPropose(order int, ours, theirs string) (string, error) {
 		}
 	}
 
-	return "", errors.New("No algorithms in common")
+	return "", ErrNoCommonAlgorithms
 }
 
 func checkAgreements(s string) bool {
