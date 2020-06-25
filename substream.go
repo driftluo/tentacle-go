@@ -128,7 +128,7 @@ func (s *subStream) closeStream() {
 	if s.sessionProtoSender != nil {
 		s.sessionProtoSender <- sessionProtocolEvent{tag: sessionProtocolClosed}
 		s.sessionProtoSender <- sessionProtocolEvent{tag: sessionProtocolDisconnected}
-		defer close(s.sessionProtoSender)
+		defer protectRun(func() { close(s.sessionProtoSender) }, nil)
 	}
 
 	// if session close receiver first, here may panic, just ignore it
@@ -136,7 +136,7 @@ func (s *subStream) closeStream() {
 		func() {
 			s.eventSender <- protocolEvent{tag: subStreamClose, event: subStreamCloseInner{sID: s.sID, pID: s.pID}}
 		},
-		func() {},
+		nil,
 	)
 }
 

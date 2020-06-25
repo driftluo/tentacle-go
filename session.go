@@ -106,6 +106,18 @@ type session struct {
 }
 
 func (s *session) runReceiver() {
+	// In theory, this value will not appear, but if it does, it means that the channel was accidentally closed.
+	closed := func(ok bool) bool {
+		if !ok {
+			s.context.closed = true
+			if s.sessionState == normal {
+				s.sessionState = localClose
+			}
+			return true
+		}
+		return false
+	}
+
 	for {
 		if s.sessionState == localClose {
 			goto CASE_STATE
@@ -113,15 +125,27 @@ func (s *session) runReceiver() {
 
 		select {
 		// Priority queue
-		case event := <-s.quickReceiver:
+		case event, ok := <-s.quickReceiver:
+			if closed(ok) {
+				goto CASE_STATE
+			}
 			s.handleSessionEvent(event)
 		default:
 			select {
-			case event := <-s.quickReceiver:
+			case event, ok := <-s.quickReceiver:
+				if closed(ok) {
+					goto CASE_STATE
+				}
 				s.handleSessionEvent(event)
-			case event := <-s.serviceReceiver:
+			case event, ok := <-s.serviceReceiver:
+				if closed(ok) {
+					goto CASE_STATE
+				}
 				s.handleSessionEvent(event)
-			case event := <-s.protoEventChan:
+			case event, ok := <-s.protoEventChan:
+				if closed(ok) {
+					goto CASE_STATE
+				}
 				s.handleStreamEvent(event)
 			}
 		}
@@ -342,7 +366,7 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 }
 
 func (s *session) closeSession() {
-	defer close(s.protoEventChan)
+	defer protectRun(func() { close(s.protoEventChan) }, nil)
 	defer s.socket.Close()
 
 	s.context.closed = true
@@ -358,14 +382,19 @@ func generateFn(f func() (net.Conn, string, string, error)) func(chan<- protocol
 		conn, version, name, err := f()
 		if err != nil {
 			defer conn.Close()
-			resChan <- protocolEvent{tag: subStreamSelectError, event: name}
+			protectRun(func() { resChan <- protocolEvent{tag: subStreamSelectError, event: name} }, nil)
 			return
 		}
-		resChan <- protocolEvent{tag: subStreamOpen, event: subStreamOpenInner{name: name, version: version, conn: conn}}
+		protectRun(
+			func() {
+				resChan <- protocolEvent{tag: subStreamOpen, event: subStreamOpenInner{name: name, version: version, conn: conn}}
+			},
+			nil,
+		)
 	}
 }
 
 func initTimeoutCheck(sender chan<- protocolEvent, ti time.Duration) {
 	<-time.After(ti)
-	sender <- protocolEvent{tag: subStreamTimeOutCheck}
+	protectRun(func() { sender <- protocolEvent{tag: subStreamTimeOutCheck} }, nil)
 }
