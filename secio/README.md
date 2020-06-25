@@ -32,7 +32,7 @@ func main() {
     listener, _ := net.Listen("tcp", ":0")
     defer listener.Close()
 
-    for ;; {
+    for {
         conn, _ := listener.Accept()
         go func() {
             sec, _ := config.Handshake(conn)
