@@ -8,7 +8,7 @@ import (
 
 const (
 	// Outbound representing yourself as the active party means that you are the client side
-	Outbound uint = iota
+	Outbound uint8 = iota
 	// Inbound representing yourself as a passive recipient means that you are the server side
 	Inbound
 )
@@ -20,9 +20,9 @@ type SessionID uint
 type SessionContext struct {
 	id SessionID
 	// Outbound or Inbound
-	ty         uint
+	ty         uint8
 	remoteAddr net.Addr
-	remotePub  secio.PublicKey
+	remotePub  secio.PubKey
 	closed     bool
 }
 
@@ -30,12 +30,15 @@ type SessionContext struct {
 type ServiceContext struct {
 	listens []net.Addr
 	key     secio.PrivKey
+
+	quickTaskReceiver chan<- serviceTask
+	taskReceiver      chan<- serviceTask
 }
 
 // ProtocolContext context with current protocol
 type ProtocolContext struct {
-	*ServiceContext
-	pid ProtocolID
+	serviceContext *ServiceContext
+	pid            ProtocolID
 }
 
 func (c *ProtocolContext) toRef(s *SessionContext) *ProtocolContextRef {
@@ -46,4 +49,10 @@ func (c *ProtocolContext) toRef(s *SessionContext) *ProtocolContextRef {
 type ProtocolContextRef struct {
 	*ProtocolContext
 	*SessionContext
+}
+
+type sessionController struct {
+	quickSender chan<- sessionEvent
+	eventSender chan<- sessionEvent
+	inner       *SessionContext
 }

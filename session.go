@@ -4,6 +4,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/driftluo/tentacle-go/secio"
 	"github.com/hashicorp/yamux"
 )
 
@@ -73,9 +74,9 @@ type protocolMessageInner struct {
 }
 
 type protocolHandleErrorInner struct {
-	PID ProtocolID
-	// If SID == 0, it means that can not locate which session case this error
-	SID SessionID
+	pid ProtocolID
+	// If sid == 0, it means that can not locate which session case this error
+	sid SessionID
 }
 
 type muxerErrorInner struct {
@@ -83,9 +84,33 @@ type muxerErrorInner struct {
 	err error
 }
 
+type handshakeErrorInner struct {
+	ty         uint8
+	err        error
+	remoteAddr net.Addr
+}
+
+type handshakeSuccessInner struct {
+	ty           uint8
+	remoteAddr   net.Addr
+	conn         net.Conn
+	listenAddr   net.Addr
+	remotePubkey secio.PubKey
+}
+
+type listenStartInner struct {
+	addr     net.Addr
+	listener net.Listener
+}
+
+type dialStartInner struct {
+	remoteAddr net.Addr
+	conn       net.Conn
+}
+
 type session struct {
 	// Common
-	socket              yamux.Session
+	socket              *yamux.Session
 	protocolConfigs     map[string]*meta
 	context             *SessionContext
 	nextStreamID        streamID

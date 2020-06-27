@@ -93,7 +93,7 @@ func (s *serviceProtocolStream) run() {
 func (s *serviceProtocolStream) handleEvent(event serviceProtocolEvent) {
 	reportFn := func(sid SessionID) func() {
 		return func() {
-			s.reportChan <- sessionEvent{tag: protocolHandleError, event: protocolHandleErrorInner{PID: s.handleContext.pid, SID: sid}}
+			s.reportChan <- sessionEvent{tag: protocolHandleError, event: protocolHandleErrorInner{pid: s.handleContext.pid, sid: sid}}
 		}
 	}
 
@@ -220,7 +220,7 @@ func (s *sessionProtocolStream) run() {
 
 func (s *sessionProtocolStream) handleEvent(event sessionProtocolEvent) {
 	reportFn := func() {
-		s.reportChan <- sessionEvent{tag: protocolHandleError, event: protocolHandleErrorInner{SID: s.context.id, PID: s.handleContext.pid}}
+		s.reportChan <- sessionEvent{tag: protocolHandleError, event: protocolHandleErrorInner{sid: s.context.id, pid: s.handleContext.pid}}
 	}
 
 	switch event.tag {
