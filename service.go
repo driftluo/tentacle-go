@@ -12,6 +12,12 @@ import (
 // ErrHandshakeTimeout secio handshake timeout
 var ErrHandshakeTimeout = errors.New("Handshake timeout")
 
+// ErrDialTimeout dial timeout
+var ErrDialTimeout = errors.New("dial timeout")
+
+// ErrListenerTimeout listen timeout
+var ErrListenerTimeout = errors.New("listen timeout")
+
 const receiveSize uint = 512
 
 type sessionProto struct {
@@ -24,6 +30,11 @@ const (
 	external uint8 = iota
 	// Event from session
 	internal
+)
+
+const (
+	high uint8 = iota
+	low
 )
 
 type serviceListener struct {
@@ -51,7 +62,7 @@ func (s *serviceListener) run() {
 			s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: s.addr, Inner: err}}
 			return
 		}
-		go handshake(conn, Inbound, conn.RemoteAddr(), s.serviceContext.key, s.config.timeout, s.addr, s.eventSender)
+		go handshake(conn, Inbound, conn.RemoteAddr(), s.serviceContext.Key, s.config.timeout, s.addr, s.eventSender)
 	}
 }
 
@@ -97,7 +108,7 @@ type service struct {
 	serviceContext *ServiceContext
 
 	// service state
-	state serviceState
+	state *serviceState
 
 	// multi transport
 	// upnp client
@@ -133,15 +144,19 @@ type service struct {
 func (s *service) run() {
 	s.initServiceProtoHandles()
 	for {
+		if len(s.sessions) == 0 && len(s.listens) == 0 && s.state.isShutdown() {
+			break
+		}
+
 		select {
 		case event := <-s.quickTaskReceiver:
-			s.handleServiceTask(event)
+			s.handleServiceTask(event, high)
 		default:
 			select {
 			case event := <-s.quickTaskReceiver:
-				s.handleServiceTask(event)
+				s.handleServiceTask(event, high)
 			case event := <-s.taskReceiver:
-				s.handleServiceTask(event)
+				s.handleServiceTask(event, low)
 			case event := <-s.sessionEventChan:
 				s.handleSessionEvent(event)
 			}
@@ -149,18 +164,128 @@ func (s *service) run() {
 	}
 }
 
-func (s *service) handleServiceTask(event serviceTask) {
+func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 	switch event.tag {
 	case taskProtocolMessage:
+		inner := event.event.(taskProtocolMessageInner)
+		beforeSend := s.beforeSends[inner.pid]
+		send := func(controller sessionController) {
+			switch priority {
+			case high:
+				controller.quickSender <- sessionEvent{tag: protocolMessage, event: protocolMessageInner{id: controller.inner.Sid, pid: inner.pid, data: beforeSend(inner.data)}}
+			case low:
+				controller.eventSender <- sessionEvent{tag: protocolMessage, event: protocolMessageInner{id: controller.inner.Sid, pid: inner.pid, data: beforeSend(inner.data)}}
+			}
+		}
+
+		switch inner.target.Tag {
+		case All:
+			for _, v := range s.sessions {
+				send(v)
+			}
+
+		case Single:
+			id := inner.target.Target.(SessionID)
+			control, ok := s.sessions[id]
+			if ok {
+				send(control)
+			}
+
+		case Multi:
+			ids := inner.target.Target.([]SessionID)
+			for _, id := range ids {
+				control, ok := s.sessions[id]
+				if ok {
+					send(control)
+				}
+			}
+		}
+
 	case taskProtocolOpen:
+		inner := event.event.(taskProtocolOpenInner)
+		switch inner.target.Tag {
+		case All:
+			for _, v := range s.protoclConfigs {
+				s.protocolOpen(inner.sid, v.inner.id, "", external)
+			}
+
+		case Single:
+			pid := inner.target.Target.(ProtocolID)
+			s.protocolOpen(inner.sid, pid, "", external)
+
+		case Multi:
+			pids := inner.target.Target.([]ProtocolID)
+			for _, pid := range pids {
+				s.protocolOpen(inner.sid, pid, "", external)
+			}
+		}
+
 	case taskProtocolClose:
+		inner := event.event.(taskProtocolCloseInner)
+		s.protocolClose(inner.sid, inner.pid, external)
+
 	case taskDial:
+		inner := event.event.(taskDialInner)
+		_, ok := s.dialProtocols[inner.addr]
+		if !ok {
+			go s.dial(inner.addr, inner.target)
+		}
+
 	case taskListen:
+		addr := event.event.(net.Addr)
+		_, ok := s.listens[addr]
+		if !ok {
+			go s.listen(addr)
+		}
+
+	case taskListenStart:
+		inner := event.event.(listenStartInner)
+		s.listenerstart(inner)
+
 	case taskDisconnect:
+		id := event.event.(SessionID)
+		s.sessionClose(id, external)
+
 	case taskSetProtocolNotify:
+		inner := event.event.(taskSetProtocolNotifyInner)
+		sender, ok := s.serviceProtoHandles[inner.pid]
+		if ok {
+			sender <- serviceProtocolEvent{tag: serviceProtocolSetNotify, event: protocolSetNotifyInner{interval: inner.interval, token: inner.token}}
+		}
+
 	case taskRemoveProtocolNotify:
+		inner := event.event.(taskRemoveProtocolNotifyInner)
+		sender, ok := s.serviceProtoHandles[inner.pid]
+		if ok {
+			sender <- serviceProtocolEvent{tag: serviceProtocolRemoveNotify, event: inner.token}
+		}
+
 	case taskSetProtocolSessionNotify:
+		inner := event.event.(taskRemoveProtocolSessionNotifyInner)
+		sender, ok := s.sessionProtoHandles[sessionProto{sid: inner.sid, pid: inner.pid}]
+		if ok {
+			sender <- sessionProtocolEvent{tag: sessionProtocolNotify, event: inner.token}
+		}
+
 	case taskRemoveProtocolSessionNotify:
+		inner := event.event.(taskRemoveProtocolSessionNotifyInner)
+		sender, ok := s.sessionProtoHandles[sessionProto{sid: inner.sid, pid: inner.pid}]
+		if ok {
+			sender <- sessionProtocolEvent{tag: sessionProtocolRemoveNotify, event: inner.token}
+		}
+
+	case taskShutdown:
+		s.state.preShutdown()
+		for addr, listen := range s.listens {
+			listen.Close()
+			s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: ListenClose, Event: addr})
+		}
+		s.listens = make(map[net.Addr]net.Listener)
+
+		for id := range s.sessions {
+			s.sessionClose(id, external)
+		}
+		*s.shutdown = true
 	}
 }
 
@@ -201,7 +326,7 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 	case protocolHandleError:
 		inner := event.event.(protocolHandleErrorInner)
 		s.handle.HandleError(s.serviceContext, ServiceError{Tag: ProtocolHandleError, Event: ProtocolHandleErrorInner{PID: inner.pid, SID: inner.sid}})
-		s.handleServiceTask(serviceTask{tag: taskShutdown})
+		s.handleServiceTask(serviceTask{tag: taskShutdown}, high)
 
 	case protocolError:
 		inner := event.event.(protocolErrorInner)
@@ -216,6 +341,8 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 	case listenError:
 		s.state.decrease()
 		inner := event.event.(ListenErrorInner)
+		deleteSlice(s.serviceContext.Listens, inner.Addr)
+		delete(s.listens, inner.Addr)
 		s.handle.HandleError(s.serviceContext, ServiceError{Tag: listenError, Event: inner})
 
 	case sessionTimeout:
@@ -236,23 +363,11 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 
 	case listenStart:
 		inner := event.event.(listenStartInner)
-		s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: ListenStarted, Event: inner.addr})
-		s.listens[inner.addr] = inner.listener
-		s.state.decrease()
-
-		listen := serviceListener{
-			shutdown:       s.shutdown,
-			listener:       inner.listener,
-			addr:           inner.addr,
-			eventSender:    s.sessionEventChan,
-			config:         s.config,
-			serviceContext: s.serviceContext,
-		}
-		go listen.run()
+		s.listenerstart(inner)
 
 	case dialStart:
 		inner := event.event.(dialStartInner)
-		go handshake(inner.conn, Outbound, inner.remoteAddr, s.serviceContext.key, s.config.timeout, nil, s.sessionEventChan)
+		go handshake(inner.conn, Outbound, inner.remoteAddr, s.serviceContext.Key, s.config.timeout, nil, s.sessionEventChan)
 	}
 }
 
@@ -271,13 +386,13 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 
 	if remotePubkey != nil {
 		for _, control := range s.sessions {
-			if remotePubkey.Equals(control.inner.remotePub) {
+			if remotePubkey.Equals(control.inner.RemotePub) {
 				defer conn.Close()
 				switch ty {
 				case Outbound:
-					s.handle.HandleError(s.serviceContext, ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: RepeatedConnection, Inner: control.inner.id, Addr: remoteAddr}})
+					s.handle.HandleError(s.serviceContext, ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: RepeatedConnection, Inner: control.inner.Sid, Addr: remoteAddr}})
 				case Inbound:
-					s.handle.HandleError(s.serviceContext, ServiceError{Tag: ListenError, Event: ListenErrorInner{Tag: RepeatedConnection, Inner: control.inner.id, Addr: listenAddr}})
+					s.handle.HandleError(s.serviceContext, ServiceError{Tag: ListenError, Event: ListenErrorInner{Tag: RepeatedConnection, Inner: control.inner.Sid, Addr: listenAddr}})
 				}
 				return
 			}
@@ -300,11 +415,11 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 		quickSender: quick,
 		eventSender: event,
 		inner: &SessionContext{
-			id:         s.nextSession,
-			remoteAddr: remoteAddr,
-			ty:         ty,
+			Sid:        s.nextSession,
+			RemoteAddr: remoteAddr,
+			Ty:         ty,
 			closed:     false,
-			remotePub:  remotePubkey,
+			RemotePub:  remotePubkey,
 		},
 	}
 	// must insert here, otherwise, the session protocol handle cannot be opened
@@ -397,7 +512,7 @@ func (s *service) sessionClose(id SessionID, source uint8) {
 			return
 		}
 
-		control.eventSender <- sessionEvent{tag: sessionClose, event: control.inner.id}
+		control.eventSender <- sessionEvent{tag: sessionClose, event: control.inner.Sid}
 	}
 
 	closeProtoids, ok := s.sessionServiceProtos[id]
@@ -477,10 +592,12 @@ func (s *service) handleOpen(handle interface{}, pid ProtocolID, sid SessionID) 
 	case ServiceProtocol:
 		serviceChan := make(chan serviceProtocolEvent, receiveSize)
 		s.serviceProtoHandles[pid] = serviceChan
+		pctx := ProtocolContext{Pid: pid}
+		pctx.ServiceContext = s.serviceContext
 
 		stream := serviceProtocolStream{
 			handle:        handle.(ServiceProtocol),
-			handleContext: ProtocolContext{serviceContext: s.serviceContext, pid: pid},
+			handleContext: pctx,
 			shutdown:      s.shutdown,
 			sessions:      make(map[SessionID]*SessionContext),
 			notifys:       make(map[uint64]time.Duration),
@@ -503,9 +620,12 @@ func (s *service) handleOpen(handle interface{}, pid ProtocolID, sid SessionID) 
 
 		s.sessionProtoHandles[sessionProto{pid: pid, sid: sid}] = sessionChan
 
+		pctx := ProtocolContext{Pid: pid}
+		pctx.ServiceContext = s.serviceContext
+
 		stream := sessionProtocolStream{
 			handle:        handle.(SessionProtocol),
-			handleContext: ProtocolContext{serviceContext: s.serviceContext, pid: pid},
+			handleContext: pctx,
 			context:       control.inner,
 			notifys:       make(map[uint64]time.Duration),
 			shutdown:      false,
@@ -526,4 +646,68 @@ func (s *service) initServiceProtoHandles() {
 
 		s.beforeSends[v.inner.id] = v.beforeSend
 	}
+}
+
+func (s *service) dial(addr net.Addr, target TargetProtocol) {
+	s.dialProtocols[addr] = target
+	resChan := make(chan sessionEvent)
+	go func() {
+		conn, err := net.Dial(addr.Network(), addr.String())
+		if err != nil {
+			resChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
+		}
+		resChan <- sessionEvent{tag: dialStart, event: dialStartInner{remoteAddr: conn.RemoteAddr(), conn: conn}}
+	}()
+
+	select {
+	case <-time.After(s.config.timeout):
+		protectRun(
+			func() {
+				s.sessionEventChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: ErrDialTimeout}}
+			},
+			nil,
+		)
+	case event := <-resChan:
+		protectRun(func() { s.sessionEventChan <- event }, nil)
+	}
+}
+
+func (s *service) listen(addr net.Addr) {
+	resChan := make(chan sessionEvent)
+	go func() {
+		listener, err := net.Listen(addr.Network(), addr.String())
+		if err != nil {
+			resChan <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
+		}
+		resChan <- sessionEvent{tag: listenStart, event: listenStartInner{addr: listener.Addr(), listener: listener}}
+	}()
+
+	select {
+	case <-time.After(s.config.timeout):
+		protectRun(
+			func() {
+				s.sessionEventChan <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: TransportError, Addr: addr, Inner: ErrListenerTimeout}}
+			},
+			nil,
+		)
+	case event := <-resChan:
+		protectRun(func() { s.sessionEventChan <- event }, nil)
+	}
+}
+
+func (s *service) listenerstart(inner listenStartInner) {
+	s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: ListenStarted, Event: inner.addr})
+	s.state.decrease()
+	s.listens[inner.addr] = inner.listener
+	s.serviceContext.Listens = append(s.serviceContext.Listens, inner.addr)
+
+	listen := serviceListener{
+		shutdown:       s.shutdown,
+		listener:       inner.listener,
+		addr:           inner.addr,
+		eventSender:    s.sessionEventChan,
+		config:         s.config,
+		serviceContext: s.serviceContext,
+	}
+	go listen.run()
 }

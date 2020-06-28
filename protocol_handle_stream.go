@@ -4,18 +4,6 @@ import (
 	"time"
 )
 
-func protectRun(entry func(), report func()) {
-	defer func() {
-		err := recover()
-		if err != nil {
-			if report != nil {
-				report()
-			}
-		}
-	}()
-	entry()
-}
-
 const (
 	serviceProtocolInit uint = iota
 	serviceProtocolConnected
@@ -93,7 +81,7 @@ func (s *serviceProtocolStream) run() {
 func (s *serviceProtocolStream) handleEvent(event serviceProtocolEvent) {
 	reportFn := func(sid SessionID) func() {
 		return func() {
-			s.reportChan <- sessionEvent{tag: protocolHandleError, event: protocolHandleErrorInner{pid: s.handleContext.pid, sid: sid}}
+			s.reportChan <- sessionEvent{tag: protocolHandleError, event: protocolHandleErrorInner{pid: s.handleContext.Pid, sid: sid}}
 		}
 	}
 
@@ -109,8 +97,8 @@ func (s *serviceProtocolStream) handleEvent(event serviceProtocolEvent) {
 
 	case serviceProtocolConnected:
 		sessioninfo := event.event.(serviceProtocolConnectedInner)
-		protectRun(func() { s.handle.Connected(s.handleContext.toRef(sessioninfo.context), sessioninfo.version) }, reportFn(sessioninfo.context.id))
-		s.sessions[sessioninfo.context.id] = sessioninfo.context
+		protectRun(func() { s.handle.Connected(s.handleContext.toRef(sessioninfo.context), sessioninfo.version) }, reportFn(sessioninfo.context.Sid))
+		s.sessions[sessioninfo.context.Sid] = sessioninfo.context
 
 	case serviceProtocolDisconnected:
 		id := event.event.(SessionID)
@@ -118,7 +106,7 @@ func (s *serviceProtocolStream) handleEvent(event serviceProtocolEvent) {
 		if !ok {
 			return
 		}
-		protectRun(func() { s.handle.Disconnected(s.handleContext.toRef(sessionctx)) }, reportFn(sessionctx.id))
+		protectRun(func() { s.handle.Disconnected(s.handleContext.toRef(sessionctx)) }, reportFn(sessionctx.Sid))
 		delete(s.sessions, id)
 
 	case serviceProtocolReceived:
@@ -128,7 +116,7 @@ func (s *serviceProtocolStream) handleEvent(event serviceProtocolEvent) {
 		if !ok {
 			return
 		}
-		protectRun(func() { s.handle.Received(s.handleContext.toRef(sessionctx), data.data) }, reportFn(sessionctx.id))
+		protectRun(func() { s.handle.Received(s.handleContext.toRef(sessionctx), data.data) }, reportFn(sessionctx.Sid))
 
 	case serviceProtocolNotify:
 		token := event.event.(uint64)
@@ -220,7 +208,7 @@ func (s *sessionProtocolStream) run() {
 
 func (s *sessionProtocolStream) handleEvent(event sessionProtocolEvent) {
 	reportFn := func() {
-		s.reportChan <- sessionEvent{tag: protocolHandleError, event: protocolHandleErrorInner{sid: s.context.id, pid: s.handleContext.pid}}
+		s.reportChan <- sessionEvent{tag: protocolHandleError, event: protocolHandleErrorInner{sid: s.context.Sid, pid: s.handleContext.Pid}}
 	}
 
 	switch event.tag {

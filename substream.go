@@ -123,7 +123,7 @@ func (s *subStream) closeStream() {
 	defer s.socket.Close()
 
 	if s.serviceProtoSender != nil {
-		s.serviceProtoSender <- serviceProtocolEvent{tag: serviceProtocolDisconnected, event: s.context.id}
+		s.serviceProtoSender <- serviceProtocolEvent{tag: serviceProtocolDisconnected, event: s.context.Sid}
 	}
 	if s.sessionProtoSender != nil {
 		s.sessionProtoSender <- sessionProtocolEvent{tag: sessionProtocolClosed}
@@ -142,7 +142,7 @@ func (s *subStream) closeStream() {
 
 func (s *subStream) sendToHandle(msg []byte) {
 	if s.serviceProtoSender != nil {
-		s.serviceProtoSender <- serviceProtocolEvent{tag: serviceProtocolReceived, event: serviceProtocolReceivedInner{id: s.context.id, data: msg}}
+		s.serviceProtoSender <- serviceProtocolEvent{tag: serviceProtocolReceived, event: serviceProtocolReceivedInner{id: s.context.Sid, data: msg}}
 	}
 
 	if s.sessionProtoSender != nil {

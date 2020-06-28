@@ -3,6 +3,7 @@ package tentacle
 import (
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/yamux"
@@ -45,17 +46,24 @@ type serviceConfig struct {
 
 const (
 	// All try open all protocol, target is nil
-	All uint = iota
-	// Single try open one protocol, target is ProtocolID
+	All uint8 = iota
+	// Single try open one protocol, target is ProtocolID/SessionID
 	Single
-	// Multi try open some protocol, target is []ProtocolID
+	// Multi try open some protocol, target is []ProtocolID/[]SessionID
 	Multi
 )
 
 // TargetProtocol when dial, specify which protocol want to open
 type TargetProtocol struct {
 	// must use All/Single/Try
-	Tag    uint
+	Tag    uint8
+	Target interface{}
+}
+
+// TargetSession when sending a message, select the specified session
+type TargetSession struct {
+	// must use All/Single/Try
+	Tag    uint8
 	Target interface{}
 }
 
@@ -68,9 +76,12 @@ const (
 type serviceState struct {
 	workers uint
 	tag     uint8
+	sync.Mutex
 }
 
 func (s *serviceState) decrease() {
+	s.Lock()
+	defer s.Unlock()
 	switch s.tag {
 	case running:
 		s.workers--
@@ -78,6 +89,8 @@ func (s *serviceState) decrease() {
 }
 
 func (s *serviceState) increase() {
+	s.Lock()
+	defer s.Unlock()
 	switch s.tag {
 	case running:
 		s.workers++
@@ -85,6 +98,8 @@ func (s *serviceState) increase() {
 }
 
 func (s *serviceState) preShutdown() {
+	s.Lock()
+	defer s.Unlock()
 	s.tag = preShutdown
 }
 

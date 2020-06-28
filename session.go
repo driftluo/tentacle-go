@@ -205,7 +205,7 @@ func (s *session) runAccept() {
 				s.sessionState = remoteClose
 			default:
 				s.sessionState = abnormal
-				s.serviceSender <- sessionEvent{tag: muxerError, event: muxerErrorInner{id: s.context.id, err: err}}
+				s.serviceSender <- sessionEvent{tag: muxerError, event: muxerErrorInner{id: s.context.Sid, err: err}}
 			}
 			break
 		}
@@ -272,19 +272,19 @@ func (s *session) handleStreamEvent(event protocolEvent) {
 		inner := event.event.(subStreamCloseInner)
 		delete(s.subStreams, inner.sID)
 		delete(s.protoStreams, inner.pID)
-		s.serviceSender <- sessionEvent{tag: sessionProtocolClosed, event: protocolCloseInner{id: s.context.id, pid: inner.pID}}
+		s.serviceSender <- sessionEvent{tag: sessionProtocolClosed, event: protocolCloseInner{id: s.context.Sid, pid: inner.pID}}
 
 	case subStreamSelectError:
 		name := event.event.(string)
-		s.serviceSender <- sessionEvent{tag: protocolSelectError, event: protocolSelectErrorInner{id: s.context.id, protoName: name}}
+		s.serviceSender <- sessionEvent{tag: protocolSelectError, event: protocolSelectErrorInner{id: s.context.Sid, protoName: name}}
 
 	case subStreamOtherError:
 		inner := event.event.(subStreamOtherErrorInner)
-		s.serviceSender <- sessionEvent{tag: protocolError, event: protocolErrorInner{id: s.context.id, pid: inner.pid, err: inner.err}}
+		s.serviceSender <- sessionEvent{tag: protocolError, event: protocolErrorInner{id: s.context.Sid, pid: inner.pid, err: inner.err}}
 
 	case subStreamTimeOutCheck:
 		if len(s.subStreams) == 0 {
-			s.serviceSender <- sessionEvent{tag: sessionTimeout, event: s.context.id}
+			s.serviceSender <- sessionEvent{tag: sessionTimeout, event: s.context.Sid}
 		}
 	}
 }
@@ -352,7 +352,7 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 
 	if !ok {
 		s.sessionState = abnormal
-		s.serviceSender <- sessionEvent{tag: protocolSelectError, event: protocolSelectErrorInner{id: s.context.id, protoName: ""}}
+		s.serviceSender <- sessionEvent{tag: protocolSelectError, event: protocolSelectErrorInner{id: s.context.Sid, protoName: ""}}
 		return
 	}
 
@@ -384,7 +384,7 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 
 	protoStream.protoOpen(event.version)
 
-	s.serviceSender <- sessionEvent{tag: protocolOpen, event: protocolOpenInner{id: s.context.id, pid: pid, version: event.version}}
+	s.serviceSender <- sessionEvent{tag: protocolOpen, event: protocolOpenInner{id: s.context.Sid, pid: pid, version: event.version}}
 	s.nextStreamID++
 	go protoStream.runWrite()
 	go protoStream.runRead()
@@ -395,7 +395,7 @@ func (s *session) closeSession() {
 	defer s.socket.Close()
 
 	s.context.closed = true
-	s.serviceSender <- sessionEvent{tag: sessionClose, event: s.context.id}
+	s.serviceSender <- sessionEvent{tag: sessionClose, event: s.context.Sid}
 }
 
 func (s *session) closeAllProto() {

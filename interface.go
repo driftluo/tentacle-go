@@ -1,6 +1,9 @@
 package tentacle
 
-import "net"
+import (
+	"net"
+	"time"
+)
 
 const (
 	// SessionClose a session close
@@ -151,25 +154,25 @@ type ServiceProtocol interface {
 	// The service handle will only be called once
 	Init(*ProtocolContext)
 	// Called when opening protocol
-	Connected(*ProtocolContextRef, string)
+	Connected(ctx *ProtocolContextRef, version string)
 	// Called when closing protocol
 	Disconnected(*ProtocolContextRef)
 	// Called when the corresponding protocol message is received
-	Received(*ProtocolContextRef, []byte)
+	Received(ctx *ProtocolContextRef, data []byte)
 	// Called when the Service receives the notify task
-	Notify(*ProtocolContext, uint64)
+	Notify(ctx *ProtocolContext, token uint64)
 }
 
 // SessionProtocol is Session level protocol handle
 type SessionProtocol interface {
 	// Called when opening protocol
-	Connected(*ProtocolContextRef, string)
+	Connected(ctx *ProtocolContextRef, version string)
 	// Called when closing protocol
 	Disconnected(*ProtocolContextRef)
 	// Called when the corresponding protocol message is received
-	Received(*ProtocolContextRef, []byte)
+	Received(ctx *ProtocolContextRef, data []byte)
 	// Called when the session receives the notify task
-	Notify(*ProtocolContextRef, uint64)
+	Notify(ctx *ProtocolContextRef, token uint64)
 }
 
 const (
@@ -183,6 +186,7 @@ const (
 	taskDisconnect
 	taskDial
 	taskListen
+	taskListenStart
 	taskShutdown
 )
 
@@ -192,4 +196,49 @@ const (
 type serviceTask struct {
 	tag   uint
 	event interface{}
+}
+
+type taskProtocolMessageInner struct {
+	target TargetSession
+	pid    ProtocolID
+	data   []byte
+}
+
+type taskProtocolOpenInner struct {
+	sid    SessionID
+	target TargetProtocol
+}
+
+type taskProtocolCloseInner struct {
+	sid SessionID
+	pid ProtocolID
+}
+
+type taskDialInner struct {
+	addr   net.Addr
+	target TargetProtocol
+}
+
+type taskSetProtocolNotifyInner struct {
+	pid      ProtocolID
+	interval time.Duration
+	token    uint64
+}
+
+type taskRemoveProtocolNotifyInner struct {
+	pid   ProtocolID
+	token uint64
+}
+
+type taskSetProtocolSessionNotifyInner struct {
+	sid      SessionID
+	pid      ProtocolID
+	interval time.Duration
+	token    uint64
+}
+
+type taskRemoveProtocolSessionNotifyInner struct {
+	sid   SessionID
+	pid   ProtocolID
+	token uint64
 }
