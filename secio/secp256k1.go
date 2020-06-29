@@ -7,6 +7,7 @@ import (
 
 	// may replace by std/crypto in future
 	btcec "github.com/btcsuite/btcd/btcec"
+	mol "github.com/driftluo/tentacle-go/secio/mol"
 )
 
 type secp256k1PrivateKey btcec.PrivateKey
@@ -14,7 +15,7 @@ type secp256k1PrivateKey btcec.PrivateKey
 type secp256k1PublicKey btcec.PublicKey
 
 // from molecule generate code
-const typeID = Number(0)
+const typeID = mol.Number(0)
 
 // Key represents a crypto key that can be compared to another key
 type Key interface {
@@ -25,7 +26,7 @@ type Key interface {
 	Equals(Key) bool
 
 	// TypeID return molecule union ID
-	TypeID() Number
+	TypeID() mol.Number
 
 	// PeerID generate a peer id from key
 	PeerID() PeerID
@@ -115,8 +116,8 @@ func (p *secp256k1PrivateKey) Equals(other Key) bool {
 }
 
 // TypeId return molecule union ID
-func (p *secp256k1PrivateKey) TypeID() Number {
-	return Number(0)
+func (p *secp256k1PrivateKey) TypeID() mol.Number {
+	return mol.Number(0)
 }
 
 // PeerID generate a peer id from key
@@ -145,14 +146,14 @@ func (k *secp256k1PublicKey) Verify(msg []byte, sigRaw []byte) error {
 // Encode return molecule-encodes bytes
 func (k *secp256k1PublicKey) Encode() []byte {
 	b := intoByteslice(k.Bytes())
-	secp := PublicKeyUnionFromSecp256k1(NewSecp256k1Builder().Set(b).Build())
-	pub := NewPublicKeyBuilder().Set(secp).Build()
+	secp := mol.PublicKeyUnionFromSecp256k1(mol.NewSecp256k1Builder().Set(b).Build())
+	pub := mol.NewPublicKeyBuilder().Set(secp).Build()
 	return pub.AsSlice()
 }
 
 // DecodeToSecpPub try parse bytes from molecule-encodes byte
 func DecodeToSecpPub(data []byte) (PubKey, error) {
-	k, err := PublicKeyFromSlice(data, true)
+	k, err := mol.PublicKeyFromSlice(data, true)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +186,7 @@ func (k *secp256k1PublicKey) Equals(other Key) bool {
 }
 
 // TypeId return molecule union ID
-func (k *secp256k1PublicKey) TypeID() Number {
+func (k *secp256k1PublicKey) TypeID() mol.Number {
 	return typeID
 }
 

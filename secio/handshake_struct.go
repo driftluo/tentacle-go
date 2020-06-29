@@ -1,25 +1,29 @@
 package secio
 
-import "unsafe"
+import (
+	"unsafe"
+
+	mol "github.com/driftluo/tentacle-go/secio/mol"
+)
 
 // intoBytes convert to molecule bytes
-func intoBytes(b []byte) Bytes {
+func intoBytes(b []byte) mol.Bytes {
 	tmp := intoByteslice(b)
-	return NewBytesBuilder().Set(tmp).Build()
+	return mol.NewBytesBuilder().Set(tmp).Build()
 }
 
 // intoString convert to molecule string
-func intoString(s string) String {
+func intoString(s string) mol.String {
 	b := Str2bytes(s)
 	tmp := intoByteslice(b)
-	return NewStringBuilder().Set(tmp).Build()
+	return mol.NewStringBuilder().Set(tmp).Build()
 }
 
 // intoByteslice convert to molecule byte slice
-func intoByteslice(b []byte) []Byte {
-	tmp := make([]Byte, len(b))
+func intoByteslice(b []byte) []mol.Byte {
+	tmp := make([]mol.Byte, len(b))
 	for i, v := range b {
-		tmp[i] = NewByte(v)
+		tmp[i] = mol.NewByte(v)
 	}
 	return tmp
 }
@@ -57,13 +61,13 @@ func (p propose) encode() []byte {
 
 	hashes := intoString(p.hashes)
 
-	pr := NewProposeBuilder().Rand(rand).Pubkey(pubkey).Exchanges(exchange).Ciphers(ciphers).Hashes(hashes).Build()
+	pr := mol.NewProposeBuilder().Rand(rand).Pubkey(pubkey).Exchanges(exchange).Ciphers(ciphers).Hashes(hashes).Build()
 
 	return pr.AsSlice()
 }
 
 func decodeToPropose(b []byte) (*propose, error) {
-	pr, err := ProposeFromSlice(b, true)
+	pr, err := mol.ProposeFromSlice(b, true)
 	if err != nil {
 		return nil, err
 	}
@@ -87,13 +91,13 @@ func (e exchange) encode() []byte {
 	epub := intoBytes(e.epubkey)
 	sig := intoBytes(e.signature)
 
-	ex := NewExchangeBuilder().Epubkey(epub).Signature(sig).Build()
+	ex := mol.NewExchangeBuilder().Epubkey(epub).Signature(sig).Build()
 
 	return ex.AsSlice()
 }
 
 func decodeToExchange(b []byte) (*exchange, error) {
-	ex, err := ExchangeFromSlice(b, true)
+	ex, err := mol.ExchangeFromSlice(b, true)
 	if err != nil {
 		return nil, err
 	}

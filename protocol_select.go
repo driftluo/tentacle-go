@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 
+	mol "github.com/driftluo/tentacle-go/mol"
 	"github.com/driftluo/tentacle-go/secio"
 	"github.com/libp2p/go-msgio"
 )
@@ -18,28 +19,28 @@ var ErrVersionNotMatch = errors.New("Can't find the same version")
 type SelectFn func([]string, []string) (string, error)
 
 // intoStringVec convert to molecule stringVec
-func intoStringVec(sv []string) StringVec {
-	tmp := make([]String, len(sv))
+func intoStringVec(sv []string) mol.StringVec {
+	tmp := make([]mol.String, len(sv))
 
 	for i, v := range sv {
 		tmp[i] = intoString(v)
 	}
 
-	return NewStringVecBuilder().Set(tmp).Build()
+	return mol.NewStringVecBuilder().Set(tmp).Build()
 }
 
 // intoString convert to molecule string
-func intoString(s string) String {
+func intoString(s string) mol.String {
 	b := secio.Str2bytes(s)
 	tmp := intoByteslice(b)
-	return NewStringBuilder().Set(tmp).Build()
+	return mol.NewStringBuilder().Set(tmp).Build()
 }
 
 // intoByteslice convert to molecule byte slice
-func intoByteslice(b []byte) []Byte {
-	tmp := make([]Byte, len(b))
+func intoByteslice(b []byte) []mol.Byte {
+	tmp := make([]mol.Byte, len(b))
 	for i, v := range b {
-		tmp[i] = NewByte(v)
+		tmp[i] = mol.NewByte(v)
 	}
 	return tmp
 }
@@ -54,12 +55,12 @@ func (p ProtocolInfo) encode() []byte {
 	name := intoString(p.name)
 	supportVersion := intoStringVec(p.supportVersion)
 
-	pi := NewProtocolInfoMolBuilder().Name(name).SupportVersions(supportVersion).Build()
+	pi := mol.NewProtocolInfoMolBuilder().Name(name).SupportVersions(supportVersion).Build()
 	return pi.AsSlice()
 }
 
 func decodeToProtocolInfo(b []byte) (*ProtocolInfo, error) {
-	pi, err := ProtocolInfoMolFromSlice(b, true)
+	pi, err := mol.ProtocolInfoMolFromSlice(b, true)
 	if err != nil {
 		return nil, err
 	}

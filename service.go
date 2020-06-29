@@ -185,14 +185,20 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 			}
 
 		case Single:
-			id := inner.target.Target.(SessionID)
+			id, ok := inner.target.Target.(SessionID)
+			if !ok {
+				return
+			}
 			control, ok := s.sessions[id]
 			if ok {
 				send(control)
 			}
 
 		case Multi:
-			ids := inner.target.Target.([]SessionID)
+			ids, ok := inner.target.Target.([]SessionID)
+			if !ok {
+				return
+			}
 			for _, id := range ids {
 				control, ok := s.sessions[id]
 				if ok {
@@ -210,11 +216,17 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 			}
 
 		case Single:
-			pid := inner.target.Target.(ProtocolID)
+			pid, ok := inner.target.Target.(ProtocolID)
+			if !ok {
+				return
+			}
 			s.protocolOpen(inner.sid, pid, "", external)
 
 		case Multi:
-			pids := inner.target.Target.([]ProtocolID)
+			pids, ok := inner.target.Target.([]ProtocolID)
+			if !ok {
+				return
+			}
 			for _, pid := range pids {
 				s.protocolOpen(inner.sid, pid, "", external)
 			}
@@ -472,29 +484,41 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 	}
 
 	if ty == Outbound {
-		switch target.Tag {
-		case All:
+		openAllProtos := func() {
 			for name := range s.protoclConfigs {
 				session.openProtoStream(name)
 			}
-		case Single:
-			pid := target.Target.(ProtocolID)
-			for name, v := range s.protoclConfigs {
-				if pid == v.inner.id {
-					session.openProtoStream(name)
-					break
-				}
-			}
-		case Multi:
-			pids := target.Target.([]ProtocolID)
+		}
+		switch target.Tag {
+		case All:
+			openAllProtos()
 
-			for _, p := range pids {
+		case Single:
+			pid, ok := target.Target.(ProtocolID)
+			if ok {
 				for name, v := range s.protoclConfigs {
-					if p == v.inner.id {
+					if pid == v.inner.id {
 						session.openProtoStream(name)
 						break
 					}
 				}
+			} else {
+				openAllProtos()
+			}
+
+		case Multi:
+			pids, ok := target.Target.([]ProtocolID)
+			if ok {
+				for _, p := range pids {
+					for name, v := range s.protoclConfigs {
+						if p == v.inner.id {
+							session.openProtoStream(name)
+							break
+						}
+					}
+				}
+			} else {
+				openAllProtos()
 			}
 		}
 	}
