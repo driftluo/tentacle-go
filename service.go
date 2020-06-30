@@ -3,11 +3,14 @@ package tentacle
 import (
 	"errors"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
 	"github.com/hashicorp/yamux"
 )
+
+var once sync.Once
 
 // ErrHandshakeTimeout secio handshake timeout
 var ErrHandshakeTimeout = errors.New("Handshake timeout")
@@ -142,11 +145,15 @@ type service struct {
 }
 
 func (s *service) run() {
-	s.initServiceProtoHandles()
+	init := 1
 	for {
-		if len(s.sessions) == 0 && len(s.listens) == 0 && s.state.isShutdown() {
+		if len(s.sessions) == 0 && len(s.listens) == 0 && s.state.isShutdown() && init == 0 {
 			break
 		}
+		once.Do(func() {
+			init--
+			s.initServiceProtoHandles()
+		})
 
 		select {
 		case event := <-s.quickTaskReceiver:
@@ -379,6 +386,12 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 
 	case dialStart:
 		inner := event.event.(dialStartInner)
+
+		if len(s.sessions)+len(s.listens)+int(s.state.inner()) < int(s.config.maxConnectionNumber) {
+			defer inner.conn.Close()
+			return
+		}
+
 		go handshake(inner.conn, Outbound, inner.remoteAddr, s.serviceContext.Key, s.config.timeout, nil, s.sessionEventChan)
 	}
 }

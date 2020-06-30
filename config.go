@@ -17,7 +17,8 @@ import (
 // and return a `ProtocolSelectError` event.
 type NameFn = func(ProtocolID) string
 
-var defaultNameFn = func(id ProtocolID) string {
+// DefaultNameFn default protocol name
+var DefaultNameFn = func(id ProtocolID) string {
 	return fmt.Sprintf("/p2p/%s", strconv.Itoa(int(id)))
 }
 
@@ -55,14 +56,14 @@ const (
 
 // TargetProtocol when dial, specify which protocol want to open
 type TargetProtocol struct {
-	// must use All/Single/Try
+	// must use All/Single/Multi
 	Tag    uint8
 	Target interface{}
 }
 
 // TargetSession when sending a message, select the specified session
 type TargetSession struct {
-	// must use All/Single/Try
+	// must use All/Single/Multi
 	Tag    uint8
 	Target interface{}
 }
@@ -114,4 +115,13 @@ func (s *serviceState) isShutdown() bool {
 		res = false
 	}
 	return res
+}
+
+func (s *serviceState) inner() uint {
+	switch s.tag {
+	case running:
+		return s.workers
+	default:
+		return 0
+	}
 }

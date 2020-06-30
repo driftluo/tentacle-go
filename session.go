@@ -392,6 +392,7 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 
 func (s *session) closeSession() {
 	defer protectRun(func() { close(s.protoEventChan) }, nil)
+	defer s.socket.GoAway()
 	defer s.socket.Close()
 
 	s.context.closed = true
