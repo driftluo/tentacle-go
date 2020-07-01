@@ -115,7 +115,7 @@ func SelectVersion(local, remote []string) (string, error) {
 func clientSelect(conn io.ReadWriter, protoInfo ProtocolInfo) (string, string, error) {
 	socket := msgio.Combine(msgio.NewWriter(conn), msgio.NewReader(conn))
 
-	socket.WriteMsg(protoInfo.encode())
+	go func() { socket.WriteMsg(protoInfo.encode()) }()
 	msg, err := socket.ReadMsg()
 
 	if err != nil {

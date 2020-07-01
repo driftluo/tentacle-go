@@ -1,6 +1,9 @@
 package tentacle
 
-import "net"
+import (
+	"io"
+	"net"
+)
 
 // ProtocolID define the protocol id
 type ProtocolID uint
@@ -106,7 +109,12 @@ func (s *subStream) runRead() {
 		readMsg, err := s.socket.ReadMsg()
 		if err != nil {
 			s.dead = true
-			s.errorClose(err)
+			switch err {
+			case io.EOF:
+				s.closeStream()
+			default:
+				s.errorClose(err)
+			}
 			break
 		}
 

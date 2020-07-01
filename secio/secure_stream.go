@@ -93,7 +93,7 @@ func (w *writeSide) WriteMsg(b []byte) error {
 }
 
 func (w *writeSide) Close() error {
-	return w.Close()
+	return w.socket.Close()
 }
 
 type readSide struct {

@@ -2,15 +2,16 @@ package tentacle
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
 	"github.com/hashicorp/yamux"
+	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr-net"
 )
-
-var once sync.Once
 
 // ErrHandshakeTimeout secio handshake timeout
 var ErrHandshakeTimeout = errors.New("Handshake timeout")
@@ -42,8 +43,7 @@ const (
 
 type serviceListener struct {
 	shutdown       *bool
-	listener       net.Listener
-	addr           net.Addr
+	listener       manet.Listener
 	eventSender    chan<- sessionEvent
 	config         serviceConfig
 	serviceContext *ServiceContext
@@ -62,14 +62,14 @@ func (s *serviceListener) run() {
 				return
 			}
 			defer s.listener.Close()
-			s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: s.addr, Inner: err}}
+			s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: s.listener.Multiaddr(), Inner: err}}
 			return
 		}
-		go handshake(conn, Inbound, conn.RemoteAddr(), s.serviceContext.Key, s.config.timeout, s.addr, s.eventSender)
+		go handshake(conn, Inbound, conn.RemoteMultiaddr(), s.serviceContext.Key, s.config.timeout, s.listener.Multiaddr(), s.eventSender)
 	}
 }
 
-func handshake(conn net.Conn, ty uint8, remoteAddr net.Addr, selfKey secio.PrivKey, timeout time.Duration, listenAddr net.Addr, report chan<- sessionEvent) {
+func handshake(conn net.Conn, ty uint8, remoteAddr ma.Multiaddr, selfKey secio.PrivKey, timeout time.Duration, listenAddr ma.Multiaddr, report chan<- sessionEvent) {
 	// secio or not
 	if selfKey != nil {
 		resChan := make(chan sessionEvent)
@@ -116,8 +116,8 @@ type service struct {
 	// multi transport
 	// upnp client
 
-	listens       map[net.Addr]net.Listener
-	dialProtocols map[net.Addr]TargetProtocol
+	listens       map[ma.Multiaddr]manet.Listener
+	dialProtocols map[ma.Multiaddr]TargetProtocol
 	config        serviceConfig
 	nextSession   SessionID
 	beforeSends   map[ProtocolID]BeforeSend
@@ -141,16 +141,19 @@ type service struct {
 	taskReceiver      <-chan serviceTask
 	quickTaskReceiver <-chan serviceTask
 
-	shutdown *bool
+	// Unable to use global variables, which can cause only one service to be started in a process
+	once     sync.Once
+	shutdown bool
 }
 
 func (s *service) run() {
 	init := 1
 	for {
 		if len(s.sessions) == 0 && len(s.listens) == 0 && s.state.isShutdown() && init == 0 {
+			s.shutdown = true
 			break
 		}
-		once.Do(func() {
+		s.once.Do(func() {
 			init--
 			s.initServiceProtoHandles()
 		})
@@ -247,11 +250,12 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 		inner := event.event.(taskDialInner)
 		_, ok := s.dialProtocols[inner.addr]
 		if !ok {
+			s.state.increase()
 			go s.dial(inner.addr, inner.target)
 		}
 
 	case taskListen:
-		addr := event.event.(net.Addr)
+		addr := event.event.(ma.Multiaddr)
 		_, ok := s.listens[addr]
 		if !ok {
 			go s.listen(addr)
@@ -299,12 +303,12 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 			listen.Close()
 			s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: ListenClose, Event: addr})
 		}
-		s.listens = make(map[net.Addr]net.Listener)
+		s.listens = make(map[ma.Multiaddr]manet.Listener)
 
 		for id := range s.sessions {
 			s.sessionClose(id, external)
 		}
-		*s.shutdown = true
+		s.shutdown = true
 	}
 }
 
@@ -316,6 +320,12 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 
 	case handshakeSuccess:
 		inner := event.event.(handshakeSuccessInner)
+
+		if inner.ty == Inbound && len(s.sessions)+len(s.listens)+int(s.state.inner()) > int(s.config.maxConnectionNumber) {
+			defer inner.conn.Close()
+			return
+		}
+
 		s.sessionOpen(inner.conn, inner.remotePubkey, inner.remoteAddr, inner.ty, inner.listenAddr)
 
 	case handshakeError:
@@ -386,17 +396,11 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 
 	case dialStart:
 		inner := event.event.(dialStartInner)
-
-		if len(s.sessions)+len(s.listens)+int(s.state.inner()) < int(s.config.maxConnectionNumber) {
-			defer inner.conn.Close()
-			return
-		}
-
 		go handshake(inner.conn, Outbound, inner.remoteAddr, s.serviceContext.Key, s.config.timeout, nil, s.sessionEventChan)
 	}
 }
 
-func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAddr net.Addr, ty uint8, listenAddr net.Addr) {
+func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAddr ma.Multiaddr, ty uint8, listenAddr ma.Multiaddr) {
 	if ty == Outbound {
 		s.state.decrease()
 	}
@@ -410,6 +414,7 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 	delete(s.dialProtocols, remoteAddr)
 
 	if remotePubkey != nil {
+		// check if repeated connection
 		for _, control := range s.sessions {
 			if remotePubkey.Equals(control.inner.RemotePub) {
 				defer conn.Close()
@@ -422,7 +427,20 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 				return
 			}
 		}
-		// TODO: check peerid here
+		// check peer id
+		// if not match, output error and close
+		// if not have, push its peer id to multiaddr
+		peerid, err := ExtractPeerID(remoteAddr)
+		if err != nil {
+			paddr, _ := ma.NewMultiaddr(fmt.Sprintf("/p2p/%s", remotePubkey.PeerID().Bese58String()))
+			remoteAddr = remoteAddr.Encapsulate(paddr)
+		} else {
+			if peerid.IsKey(remotePubkey) {
+				defer conn.Close()
+				s.handle.HandleError(s.serviceContext, ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: PeerIDNotMatch, Addr: remoteAddr}})
+				return
+			}
+		}
 	}
 
 	for {
@@ -458,14 +476,8 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 	}
 
 	var socket *yamux.Session
-	var sessionProtoConfigs map[string]*meta
-	var sessionProtoSenders map[ProtocolID]chan<- sessionProtocolEvent
-
-	if ty == Outbound {
-		socket, _ = yamux.Client(conn, s.config.yamuxConfig)
-	} else {
-		socket, _ = yamux.Server(conn, s.config.yamuxConfig)
-	}
+	var sessionProtoConfigs = make(map[string]*meta)
+	var sessionProtoSenders = make(map[ProtocolID]chan<- sessionProtocolEvent)
 
 	for k, v := range s.protoclConfigs {
 		sessionProtoConfigs[k] = v.inner
@@ -475,6 +487,12 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 		if k.sid == s.nextSession {
 			sessionProtoSenders[k.pid] = v
 		}
+	}
+
+	if ty == Outbound {
+		socket, _ = yamux.Client(conn, s.config.yamuxConfig)
+	} else {
+		socket, _ = yamux.Server(conn, s.config.yamuxConfig)
 	}
 
 	session := session{
@@ -612,13 +630,14 @@ func (s *service) protocolOpen(sid SessionID, pid ProtocolID, version string, so
 		control.eventSender <- sessionEvent{tag: protocolOpen, event: protocolOpenInner{id: sid, pid: pid, version: version}}
 	}
 
-	var protos = make(map[ProtocolID]bool)
+	var protos map[ProtocolID]bool
 	var ok bool
 
 	protos, ok = s.sessionServiceProtos[sid]
 
 	if !ok {
-		s.sessionServiceProtos[sid] = protos
+		s.sessionServiceProtos[sid] = make(map[ProtocolID]bool)
+		protos = s.sessionServiceProtos[sid]
 	}
 
 	protos[pid] = true
@@ -635,7 +654,7 @@ func (s *service) handleOpen(handle interface{}, pid ProtocolID, sid SessionID) 
 		stream := serviceProtocolStream{
 			handle:        handle.(ServiceProtocol),
 			handleContext: pctx,
-			shutdown:      s.shutdown,
+			shutdown:      &s.shutdown,
 			sessions:      make(map[SessionID]*SessionContext),
 			notifys:       make(map[uint64]time.Duration),
 
@@ -685,15 +704,20 @@ func (s *service) initServiceProtoHandles() {
 	}
 }
 
-func (s *service) dial(addr net.Addr, target TargetProtocol) {
+func (s *service) dial(addr ma.Multiaddr, target TargetProtocol) {
+	if !isSupport(addr) {
+		s.sessionEventChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: ErrNotSupport}}
+		return
+	}
+
 	s.dialProtocols[addr] = target
 	resChan := make(chan sessionEvent)
 	go func() {
-		conn, err := net.Dial(addr.Network(), addr.String())
+		conn, err := manet.Dial(addr)
 		if err != nil {
 			resChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
 		}
-		resChan <- sessionEvent{tag: dialStart, event: dialStartInner{remoteAddr: conn.RemoteAddr(), conn: conn}}
+		resChan <- sessionEvent{tag: dialStart, event: dialStartInner{remoteAddr: addr, conn: conn}}
 	}()
 
 	select {
@@ -709,14 +733,18 @@ func (s *service) dial(addr net.Addr, target TargetProtocol) {
 	}
 }
 
-func (s *service) listen(addr net.Addr) {
+func (s *service) listen(addr ma.Multiaddr) {
+	if !isSupport(addr) {
+		s.sessionEventChan <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: TransportError, Addr: addr, Inner: ErrNotSupport}}
+		return
+	}
 	resChan := make(chan sessionEvent)
 	go func() {
-		listener, err := net.Listen(addr.Network(), addr.String())
+		listener, err := manet.Listen(addr)
 		if err != nil {
 			resChan <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
 		}
-		resChan <- sessionEvent{tag: listenStart, event: listenStartInner{addr: listener.Addr(), listener: listener}}
+		resChan <- sessionEvent{tag: listenStart, event: listenStartInner{listener: listener}}
 	}()
 
 	select {
@@ -733,18 +761,28 @@ func (s *service) listen(addr net.Addr) {
 }
 
 func (s *service) listenerstart(inner listenStartInner) {
-	s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: ListenStarted, Event: inner.addr})
+	s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: ListenStarted, Event: inner.listener.Multiaddr()})
 	s.state.decrease()
-	s.listens[inner.addr] = inner.listener
-	s.serviceContext.Listens = append(s.serviceContext.Listens, inner.addr)
+	s.listens[inner.listener.Multiaddr()] = inner.listener
+	s.serviceContext.Listens = append(s.serviceContext.Listens, inner.listener.Multiaddr())
 
 	listen := serviceListener{
-		shutdown:       s.shutdown,
+		shutdown:       &s.shutdown,
 		listener:       inner.listener,
-		addr:           inner.addr,
 		eventSender:    s.sessionEventChan,
 		config:         s.config,
 		serviceContext: s.serviceContext,
 	}
 	go listen.run()
+}
+
+func (s *service) control() *Service {
+	return &Service{
+		state:  s.state,
+		key:    s.serviceContext.Key,
+		closed: &s.shutdown,
+
+		quickTaskSender: s.serviceContext.quickTaskSender,
+		taskSender:      s.serviceContext.taskSender,
+	}
 }

@@ -1,21 +1,24 @@
 package tentacle
 
 import (
+	"io"
 	"net"
 	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
 	"github.com/hashicorp/yamux"
+	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr-net"
 )
 
 const (
-	/// Close by remote, accept all data as much as possible
+	// Close by remote, accept all data as much as possible
 	remoteClose uint8 = iota
-	/// Close by self, don't receive any more
+	// Close by self, don't receive any more
 	localClose
-	/// Normal communication
+	// Normal communication
 	normal
-	/// Abnormal state
+	// Abnormal state
 	abnormal
 )
 
@@ -87,24 +90,23 @@ type muxerErrorInner struct {
 type handshakeErrorInner struct {
 	ty         uint8
 	err        error
-	remoteAddr net.Addr
+	remoteAddr ma.Multiaddr
 }
 
 type handshakeSuccessInner struct {
 	ty           uint8
-	remoteAddr   net.Addr
+	remoteAddr   ma.Multiaddr
 	conn         net.Conn
-	listenAddr   net.Addr
+	listenAddr   ma.Multiaddr
 	remotePubkey secio.PubKey
 }
 
 type listenStartInner struct {
-	addr     net.Addr
-	listener net.Listener
+	listener manet.Listener
 }
 
 type dialStartInner struct {
-	remoteAddr net.Addr
+	remoteAddr ma.Multiaddr
 	conn       net.Conn
 }
 
@@ -201,7 +203,7 @@ func (s *session) runAccept() {
 
 		if err != nil {
 			switch err {
-			case yamux.ErrSessionShutdown:
+			case yamux.ErrSessionShutdown, io.EOF:
 				s.sessionState = remoteClose
 			default:
 				s.sessionState = abnormal
@@ -272,7 +274,7 @@ func (s *session) handleStreamEvent(event protocolEvent) {
 		inner := event.event.(subStreamCloseInner)
 		delete(s.subStreams, inner.sID)
 		delete(s.protoStreams, inner.pID)
-		s.serviceSender <- sessionEvent{tag: sessionProtocolClosed, event: protocolCloseInner{id: s.context.Sid, pid: inner.pID}}
+		s.serviceSender <- sessionEvent{tag: protocolClose, event: protocolCloseInner{id: s.context.Sid, pid: inner.pID}}
 
 	case subStreamSelectError:
 		name := event.event.(string)
@@ -303,8 +305,8 @@ func (s *session) handleSubstream(conn net.Conn) {
 
 	fn := generateFn(
 		func() (net.Conn, string, string, error) {
-			version, name, err := serverSelect(conn, infos)
-			return conn, version, name, err
+			name, version, err := serverSelect(conn, infos)
+			return conn, name, version, err
 		},
 	)
 	s.selectProcedure(fn)
@@ -325,8 +327,8 @@ func (s *session) openProtoStream(name string) {
 
 	fn := generateFn(
 		func() (net.Conn, string, string, error) {
-			version, name, err := clientSelect(conn, info)
-			return conn, version, name, err
+			name, version, err := clientSelect(conn, info)
+			return conn, name, version, err
 		},
 	)
 	s.selectProcedure(fn)
@@ -334,15 +336,15 @@ func (s *session) openProtoStream(name string) {
 
 func (s *session) selectProcedure(f func(chan<- protocolEvent)) {
 	go func() {
-		resChan := make(chan protocolEvent, 1)
+		resChan := make(chan protocolEvent)
 
 		go f(resChan)
 
 		select {
 		case event := <-resChan:
-			s.protoEventChan <- event
+			protectRun(func() { s.protoEventChan <- event }, nil)
 		case <-time.After(s.timeout):
-			s.protoEventChan <- protocolEvent{tag: subStreamSelectError, event: ""}
+			protectRun(func() { s.protoEventChan <- protocolEvent{tag: subStreamSelectError, event: ""} }, nil)
 		}
 	}()
 }
@@ -405,7 +407,7 @@ func (s *session) closeAllProto() {
 
 func generateFn(f func() (net.Conn, string, string, error)) func(chan<- protocolEvent) {
 	return func(resChan chan<- protocolEvent) {
-		conn, version, name, err := f()
+		conn, name, version, err := f()
 		if err != nil {
 			defer conn.Close()
 			protectRun(func() { resChan <- protocolEvent{tag: subStreamSelectError, event: name} }, nil)

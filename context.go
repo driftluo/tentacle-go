@@ -6,10 +6,15 @@ import (
 	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
+	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr-net"
 )
 
 // ErrBrokenPipe service has been shutdown
 var ErrBrokenPipe = errors.New("BrokenPipe")
+
+// ErrNotSupport protocol doesn't support
+var ErrNotSupport = errors.New("Protocol doesn't support")
 
 const (
 	// Outbound representing yourself as the active party means that you are the client side
@@ -28,7 +33,7 @@ type SessionContext struct {
 	// Outbound or Inbound
 	Ty uint8
 	// remote addr
-	RemoteAddr net.Addr
+	RemoteAddr ma.Multiaddr
 	// remote pubkey, may nil on no secio mode
 	RemotePub secio.PubKey
 	closed    bool
@@ -36,11 +41,11 @@ type SessionContext struct {
 
 // ServiceContext context with current service
 type ServiceContext struct {
-	Listens []net.Addr
+	Listens []ma.Multiaddr
 	Key     secio.PrivKey
 
-	quickTaskReceiver chan<- serviceTask
-	taskReceiver      chan<- serviceTask
+	quickTaskSender chan<- serviceTask
+	taskSender      chan<- serviceTask
 }
 
 func (s *ServiceContext) sendInner(sender chan<- serviceTask, event serviceTask) {
@@ -48,11 +53,11 @@ func (s *ServiceContext) sendInner(sender chan<- serviceTask, event serviceTask)
 }
 
 func (s *ServiceContext) quickSend(event serviceTask) {
-	s.sendInner(s.quickTaskReceiver, event)
+	s.sendInner(s.quickTaskSender, event)
 }
 
 func (s *ServiceContext) send(event serviceTask) {
-	s.sendInner(s.quickTaskReceiver, event)
+	s.sendInner(s.taskSender, event)
 }
 
 // ListenAsync try create a new listener, if service is shutdown, return error
@@ -61,7 +66,7 @@ func (s *ServiceContext) ListenAsync(addr net.Addr) {
 }
 
 // Dial initiate a connection request to address
-func (s *ServiceContext) Dial(addr net.Addr, target TargetProtocol) {
+func (s *ServiceContext) Dial(addr ma.Multiaddr, target TargetProtocol) {
 	s.quickSend(serviceTask{tag: taskDial, event: taskDialInner{addr: addr, target: target}})
 }
 
@@ -173,8 +178,8 @@ type Service struct {
 	key    secio.PrivKey
 	closed *bool
 
-	quickTaskReceiver chan<- serviceTask
-	taskReceiver      chan<- serviceTask
+	quickTaskSender chan<- serviceTask
+	taskSender      chan<- serviceTask
 }
 
 func (s *Service) sendInner(sender chan<- serviceTask, event serviceTask) {
@@ -185,7 +190,7 @@ func (s *Service) quickSend(event serviceTask) error {
 	if *s.closed {
 		return ErrBrokenPipe
 	}
-	s.sendInner(s.quickTaskReceiver, event)
+	s.sendInner(s.quickTaskSender, event)
 	return nil
 }
 
@@ -193,25 +198,32 @@ func (s *Service) send(event serviceTask) error {
 	if *s.closed {
 		return ErrBrokenPipe
 	}
-	s.sendInner(s.quickTaskReceiver, event)
+	s.sendInner(s.taskSender, event)
 	return nil
 }
 
-// Listen create a new listener, blocking here util listen finished and return listen addr
-func (s *Service) Listen(addr net.Addr) (net.Addr, error) {
-	listener, err := net.Listen(addr.Network(), addr.String())
+// Key get local private key
+func (s *Service) Key() secio.PrivKey {
+	return s.key
+}
 
+// Listen create a new listener, blocking here util listen finished and return listen addr
+func (s *Service) Listen(addr ma.Multiaddr) (ma.Multiaddr, error) {
+	if !isSupport(addr) {
+		return nil, ErrNotSupport
+	}
+	listener, err := manet.Listen(addr)
 	if err != nil {
 		return nil, err
 	}
 
-	err = s.quickSend(serviceTask{tag: taskListenStart, event: listenStartInner{addr: listener.Addr(), listener: listener}})
+	err = s.quickSend(serviceTask{tag: taskListenStart, event: listenStartInner{listener: listener}})
 
 	if err != nil {
 		return nil, err
 	}
 	s.state.increase()
-	return listener.Addr(), nil
+	return listener.Multiaddr(), nil
 }
 
 // ListenAsync try create a new listener, if service is shutdown, return error
@@ -220,7 +232,7 @@ func (s *Service) ListenAsync(addr net.Addr) error {
 }
 
 // Dial initiate a connection request to address
-func (s *Service) Dial(addr net.Addr, target TargetProtocol) error {
+func (s *Service) Dial(addr ma.Multiaddr, target TargetProtocol) error {
 	return s.quickSend(serviceTask{tag: taskDial, event: taskDialInner{addr: addr, target: target}})
 }
 
@@ -292,4 +304,9 @@ func (s *Service) RemoveSessionNotify(sid SessionID, pid ProtocolID, token uint6
 // 4. close service
 func (s *Service) Shutdown() error {
 	return s.send(serviceTask{tag: taskShutdown})
+}
+
+// IsShutdown determine whether to shutdown
+func (s *Service) IsShutdown() bool {
+	return *s.closed
 }

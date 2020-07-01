@@ -8,6 +8,8 @@ import (
 	"github.com/driftluo/tentacle-go/secio"
 	"github.com/hashicorp/yamux"
 	"github.com/libp2p/go-msgio"
+	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr-net"
 )
 
 // Codec use on protocol stream to en/decode message
@@ -140,8 +142,7 @@ func (m *MetaBuilder) BeforeReceive(beforeRecv BeforeReceive) *MetaBuilder {
 }
 
 // Build combine the configuration of this builder to create a ProtocolMeta
-func (m *MetaBuilder) Build(beforeRecv BeforeReceive) ProtocolMeta {
-	m.beforeReceive = beforeRecv
+func (m *MetaBuilder) Build() ProtocolMeta {
 	return ProtocolMeta{
 		inner: &meta{
 			id:              m.id,
@@ -226,7 +227,6 @@ func (s *ServiceBuilder) MaxConnectionNumber(num uint) *ServiceBuilder {
 // Build combine the configuration of this builder with service handle to create a Service.
 func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 	var state *serviceState
-	var closed *bool
 
 	if s.forever {
 		state = &serviceState{tag: forever}
@@ -234,25 +234,23 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 		state = &serviceState{tag: running, workers: 0}
 	}
 
-	*closed = false
-
-	quickTask := make(chan serviceTask)
-	task := make(chan serviceTask)
-	sessionChan := make(chan sessionEvent)
+	quickTask := make(chan serviceTask, sendSize)
+	task := make(chan serviceTask, sendSize)
+	sessionChan := make(chan sessionEvent, sendSize)
 
 	service := service{
 		protoclConfigs: s.inner,
 		serviceContext: &ServiceContext{
-			Listens: []net.Addr{},
+			Listens: []ma.Multiaddr{},
 			Key:     s.keyPair,
 
-			quickTaskReceiver: quickTask,
-			taskReceiver:      task,
+			quickTaskSender: quickTask,
+			taskSender:      task,
 		},
 		state: state,
 
-		listens:       make(map[net.Addr]net.Listener),
-		dialProtocols: make(map[net.Addr]TargetProtocol),
+		listens:       make(map[ma.Multiaddr]manet.Listener),
+		dialProtocols: make(map[ma.Multiaddr]TargetProtocol),
 		config:        s.config,
 		nextSession:   SessionID(0),
 		beforeSends:   make(map[ProtocolID]BeforeSend),
@@ -266,17 +264,10 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 		taskReceiver:         task,
 		quickTaskReceiver:    quickTask,
 
-		shutdown: closed,
+		shutdown: false,
 	}
 
 	go service.run()
 
-	return &Service{
-		state:  state,
-		key:    s.keyPair,
-		closed: closed,
-
-		quickTaskReceiver: quickTask,
-		taskReceiver:      task,
-	}
+	return service.control()
 }

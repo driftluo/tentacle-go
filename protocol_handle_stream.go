@@ -85,12 +85,6 @@ func (s *serviceProtocolStream) handleEvent(event serviceProtocolEvent) {
 		}
 	}
 
-	// In theory, this value will not appear, but if it does, it means that the channel was accidentally closed.
-	if event.event == nil && event.tag == 0 {
-		*s.shutdown = true
-		return
-	}
-
 	switch event.tag {
 	case serviceProtocolInit:
 		protectRun(func() { s.handle.Init(&s.handleContext) }, reportFn(SessionID(0)))
