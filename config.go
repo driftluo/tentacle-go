@@ -33,10 +33,10 @@ type meta struct {
 
 // ProtocolMeta define the minimum data required for a custom protocol
 type ProtocolMeta struct {
-	inner         *meta
-	serviceHandle ServiceProtocol
-	sessionHandle SessionProtocol
-	beforeSend    BeforeSend
+	inner           *meta
+	serviceHandle   ServiceProtocol
+	sessionHandleFn SessionProtocolFn
+	beforeSend      BeforeSend
 }
 
 type serviceConfig struct {

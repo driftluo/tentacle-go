@@ -180,11 +180,12 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 		inner := event.event.(taskProtocolMessageInner)
 		beforeSend := s.beforeSends[inner.pid]
 		send := func(controller sessionController) {
+			event := sessionEvent{tag: protocolMessage, event: protocolMessageInner{id: controller.inner.Sid, pid: inner.pid, data: beforeSend(inner.data)}}
 			switch priority {
 			case high:
-				controller.quickSender <- sessionEvent{tag: protocolMessage, event: protocolMessageInner{id: controller.inner.Sid, pid: inner.pid, data: beforeSend(inner.data)}}
+				controller.quickSender <- event
 			case low:
-				controller.eventSender <- sessionEvent{tag: protocolMessage, event: protocolMessageInner{id: controller.inner.Sid, pid: inner.pid, data: beforeSend(inner.data)}}
+				controller.eventSender <- event
 			}
 		}
 
@@ -258,6 +259,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 		addr := event.event.(ma.Multiaddr)
 		_, ok := s.listens[addr]
 		if !ok {
+			s.state.increase()
 			go s.listen(addr)
 		}
 
@@ -320,8 +322,10 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 
 	case handshakeSuccess:
 		inner := event.event.(handshakeSuccessInner)
-
-		if inner.ty == Inbound && len(s.sessions)+len(s.listens)+int(s.state.inner()) > int(s.config.maxConnectionNumber) {
+		if inner.ty == Outbound {
+			s.state.decrease()
+		}
+		if inner.ty == Inbound && len(s.sessions)+len(s.listens)+int(s.state.inner()) >= int(s.config.maxConnectionNumber) {
 			defer inner.conn.Close()
 			return
 		}
@@ -370,9 +374,13 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 	case listenError:
 		s.state.decrease()
 		inner := event.event.(ListenErrorInner)
-		deleteSlice(s.serviceContext.Listens, inner.Addr)
-		delete(s.listens, inner.Addr)
-		s.handle.HandleError(s.serviceContext, ServiceError{Tag: listenError, Event: inner})
+		s.handle.HandleError(s.serviceContext, ServiceError{Tag: ListenError, Event: inner})
+		_, ok := s.listens[inner.Addr]
+		if ok {
+			deleteSlice(s.serviceContext.Listens, inner.Addr)
+			delete(s.listens, inner.Addr)
+			s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: ListenClose, Event: inner.Addr})
+		}
 
 	case sessionTimeout:
 		id := event.event.(SessionID)
@@ -393,17 +401,10 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 	case listenStart:
 		inner := event.event.(listenStartInner)
 		s.listenerstart(inner)
-
-	case dialStart:
-		inner := event.event.(dialStartInner)
-		go handshake(inner.conn, Outbound, inner.remoteAddr, s.serviceContext.Key, s.config.timeout, nil, s.sessionEventChan)
 	}
 }
 
 func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAddr ma.Multiaddr, ty uint8, listenAddr ma.Multiaddr) {
-	if ty == Outbound {
-		s.state.decrease()
-	}
 	var target TargetProtocol
 	var ok bool
 
@@ -469,11 +470,7 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 	s.sessions[s.nextSession] = control
 
 	// open all session handles
-	for _, v := range s.protoclConfigs {
-		if v.sessionHandle != nil {
-			s.handleOpen(v.sessionHandle, v.inner.id, s.nextSession)
-		}
-	}
+	s.sessionHandlesOpen(s.nextSession)
 
 	var socket *yamux.Session
 	var sessionProtoConfigs = make(map[string]*meta)
@@ -643,61 +640,59 @@ func (s *service) protocolOpen(sid SessionID, pid ProtocolID, version string, so
 	protos[pid] = true
 }
 
-func (s *service) handleOpen(handle interface{}, pid ProtocolID, sid SessionID) {
-	switch handle.(type) {
-	case ServiceProtocol:
-		serviceChan := make(chan serviceProtocolEvent, receiveSize)
-		s.serviceProtoHandles[pid] = serviceChan
-		pctx := ProtocolContext{Pid: pid}
-		pctx.ServiceContext = s.serviceContext
+func (s *service) sessionHandlesOpen(sid SessionID) {
+	for _, v := range s.protoclConfigs {
+		if v.sessionHandleFn != nil {
+			control, ok := s.sessions[sid]
+			if !ok {
+				continue
+			}
+			sessionChan := make(chan sessionProtocolEvent, receiveSize)
 
-		stream := serviceProtocolStream{
-			handle:        handle.(ServiceProtocol),
-			handleContext: pctx,
-			shutdown:      &s.shutdown,
-			sessions:      make(map[SessionID]*SessionContext),
-			notifys:       make(map[uint64]time.Duration),
+			s.sessionProtoHandles[sessionProto{pid: v.inner.id, sid: sid}] = sessionChan
 
-			eventReceiver: serviceChan,
-			notifyChan:    make(chan uint64, 16),
-			reportChan:    s.sessionEventChan,
+			pctx := ProtocolContext{Pid: v.inner.id}
+			pctx.ServiceContext = s.serviceContext
+
+			stream := sessionProtocolStream{
+				handle:        v.sessionHandleFn(),
+				handleContext: pctx,
+				context:       control.inner,
+				notifys:       make(map[uint64]time.Duration),
+				shutdown:      false,
+
+				eventReceiver: sessionChan,
+				notifyChan:    make(chan uint64, 16),
+				reportChan:    s.sessionEventChan,
+			}
+			go stream.run()
 		}
-
-		stream.handleEvent(serviceProtocolEvent{tag: serviceProtocolInit})
-
-		go stream.run()
-
-	case SessionProtocol:
-		control, ok := s.sessions[sid]
-		if !ok {
-			return
-		}
-		sessionChan := make(chan sessionProtocolEvent, receiveSize)
-
-		s.sessionProtoHandles[sessionProto{pid: pid, sid: sid}] = sessionChan
-
-		pctx := ProtocolContext{Pid: pid}
-		pctx.ServiceContext = s.serviceContext
-
-		stream := sessionProtocolStream{
-			handle:        handle.(SessionProtocol),
-			handleContext: pctx,
-			context:       control.inner,
-			notifys:       make(map[uint64]time.Duration),
-			shutdown:      false,
-
-			eventReceiver: sessionChan,
-			notifyChan:    make(chan uint64, 16),
-			reportChan:    s.sessionEventChan,
-		}
-		go stream.run()
 	}
 }
 
 func (s *service) initServiceProtoHandles() {
 	for _, v := range s.protoclConfigs {
 		if v.serviceHandle != nil {
-			s.handleOpen(v.serviceHandle, v.inner.id, SessionID(0))
+			serviceChan := make(chan serviceProtocolEvent, receiveSize)
+			s.serviceProtoHandles[v.inner.id] = serviceChan
+			pctx := ProtocolContext{Pid: v.inner.id}
+			pctx.ServiceContext = s.serviceContext
+
+			stream := serviceProtocolStream{
+				handle:        v.serviceHandle,
+				handleContext: pctx,
+				shutdown:      &s.shutdown,
+				sessions:      make(map[SessionID]*SessionContext),
+				notifys:       make(map[uint64]time.Duration),
+
+				eventReceiver: serviceChan,
+				notifyChan:    make(chan uint64, 16),
+				reportChan:    s.sessionEventChan,
+			}
+
+			stream.handleEvent(serviceProtocolEvent{tag: serviceProtocolInit})
+
+			go stream.run()
 		}
 
 		s.beforeSends[v.inner.id] = v.beforeSend
@@ -711,13 +706,14 @@ func (s *service) dial(addr ma.Multiaddr, target TargetProtocol) {
 	}
 
 	s.dialProtocols[addr] = target
-	resChan := make(chan sessionEvent)
+	resChan := make(chan interface{})
 	go func() {
 		conn, err := manet.Dial(addr)
 		if err != nil {
 			resChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
 		}
-		resChan <- sessionEvent{tag: dialStart, event: dialStartInner{remoteAddr: addr, conn: conn}}
+		resChan <- nil
+		go handshake(conn, Outbound, addr, s.serviceContext.Key, s.config.timeout, nil, s.sessionEventChan)
 	}()
 
 	select {
@@ -728,8 +724,11 @@ func (s *service) dial(addr ma.Multiaddr, target TargetProtocol) {
 			},
 			nil,
 		)
-	case event := <-resChan:
-		protectRun(func() { s.sessionEventChan <- event }, nil)
+	case inner := <-resChan:
+		event, ok := inner.(sessionEvent)
+		if ok {
+			protectRun(func() { s.sessionEventChan <- event }, nil)
+		}
 	}
 }
 

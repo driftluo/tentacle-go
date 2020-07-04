@@ -25,7 +25,6 @@ const (
 const (
 	sessionClose uint = iota
 	listenStart
-	dialStart
 	handshakeSuccess
 	handshakeError
 	dialError
@@ -103,11 +102,6 @@ type handshakeSuccessInner struct {
 
 type listenStartInner struct {
 	listener manet.Listener
-}
-
-type dialStartInner struct {
-	remoteAddr ma.Multiaddr
-	conn       net.Conn
 }
 
 type session struct {

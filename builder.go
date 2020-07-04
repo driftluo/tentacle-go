@@ -30,6 +30,9 @@ type BeforeSend func([]byte) []byte
 // BeforeReceive unified processing of messages before user received
 type BeforeReceive func([]byte) []byte
 
+// SessionProtocolFn generate SessionProtocol
+type SessionProtocolFn func() SessionProtocol
+
 // DefaultCodec use by default, is a LengthDelimitedCodec
 var DefaultCodec = func(conn net.Conn) Codec {
 	return msgio.Combine(msgio.NewWriter(conn), msgio.NewReader(conn))
@@ -52,7 +55,7 @@ type MetaBuilder struct {
 	supportVersions []string
 	codec           CodecFn
 	serviceHandle   ServiceProtocol
-	sessionHandle   SessionProtocol
+	sessionHandle   SessionProtocolFn
 	selectVersion   SelectFn
 	beforeSend      BeforeSend
 	beforeReceive   BeforeReceive
@@ -118,8 +121,8 @@ func (m *MetaBuilder) ServiceHandle(service ServiceProtocol) *MetaBuilder {
 }
 
 // SessionHandle define protocol session handle, default is nil
-func (m *MetaBuilder) SessionHandle(session SessionProtocol) *MetaBuilder {
-	m.sessionHandle = session
+func (m *MetaBuilder) SessionHandle(sessionFn SessionProtocolFn) *MetaBuilder {
+	m.sessionHandle = sessionFn
 	return m
 }
 
@@ -152,9 +155,9 @@ func (m *MetaBuilder) Build() ProtocolMeta {
 			selectVersion:   m.selectVersion,
 			beforeReceive:   m.beforeReceive,
 		},
-		serviceHandle: m.serviceHandle,
-		sessionHandle: m.sessionHandle,
-		beforeSend:    m.beforeSend,
+		serviceHandle:   m.serviceHandle,
+		sessionHandleFn: m.sessionHandle,
+		beforeSend:      m.beforeSend,
 	}
 }
 
