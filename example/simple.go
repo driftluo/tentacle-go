@@ -37,7 +37,7 @@ func (p *pHandle) Init(ctx *tentacle.ProtocolContext) {
 func (p *pHandle) Connected(ctx *tentacle.ProtocolContextRef, version string) {
 	p.connections = append(p.connections, ctx.Sid)
 
-	log.Println(fmt.Sprintf("pid: %d, sid: %d, remote addr: %s type: %d, version: %s", ctx.Pid, ctx.Sid, ctx.RemoteAddr, ctx.Ty, version))
+	log.Println(fmt.Sprintf("pid: %d, sid: %d, remote addr: %s type: %s, version: %s", ctx.Pid, ctx.Sid, ctx.RemoteAddr, ctx.Ty.Name(), version))
 	log.Println("connected sessions", p.connections)
 
 	if ctx.Pid != tentacle.ProtocolID(1) {

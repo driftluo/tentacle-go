@@ -16,12 +16,22 @@ var ErrBrokenPipe = errors.New("BrokenPipe")
 // ErrNotSupport protocol doesn't support
 var ErrNotSupport = errors.New("Protocol doesn't support")
 
-const (
-	// Outbound representing yourself as the active party means that you are the client side
-	Outbound uint8 = iota
-	// Inbound representing yourself as a passive recipient means that you are the server side
-	Inbound
-)
+// SessionType Outbound or Inbound
+// Outbound representing yourself as the active party means that you are the client side
+// Inbound representing yourself as a passive recipient means that you are the server side
+type SessionType uint8
+
+// Name type name
+func (t *SessionType) Name() string {
+	if *t == SessionType(0) {
+		return "Outbound"
+	}
+	return "Inbound"
+}
+
+func (t *SessionType) String() string {
+	return t.Name()
+}
 
 // SessionID index of session
 type SessionID uint
@@ -31,7 +41,7 @@ type SessionContext struct {
 	// Sid session id
 	Sid SessionID
 	// Outbound or Inbound
-	Ty uint8
+	Ty SessionType
 	// remote addr
 	RemoteAddr ma.Multiaddr
 	// remote pubkey, may nil on no secio mode

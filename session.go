@@ -87,13 +87,13 @@ type muxerErrorInner struct {
 }
 
 type handshakeErrorInner struct {
-	ty         uint8
+	ty         SessionType
 	err        error
 	remoteAddr ma.Multiaddr
 }
 
 type handshakeSuccessInner struct {
-	ty           uint8
+	ty           SessionType
 	remoteAddr   ma.Multiaddr
 	conn         net.Conn
 	listenAddr   ma.Multiaddr
@@ -106,15 +106,16 @@ type listenStartInner struct {
 
 type session struct {
 	// Common
-	socket              *yamux.Session
-	protocolConfigs     map[string]*meta
-	context             *SessionContext
-	nextStreamID        streamID
-	protoStreams        map[ProtocolID]streamID
-	serviceProtoSenders map[ProtocolID]chan<- serviceProtocolEvent
-	sessionProtoSenders map[ProtocolID]chan<- sessionProtocolEvent
-	sessionState        uint8
-	timeout             time.Duration
+	socket                *yamux.Session
+	protocolConfigsByName map[string]*meta
+	protocolConfigsByID   map[ProtocolID]*meta
+	context               *SessionContext
+	nextStreamID          streamID
+	protoStreams          map[ProtocolID]streamID
+	serviceProtoSenders   map[ProtocolID]chan<- serviceProtocolEvent
+	sessionProtoSenders   map[ProtocolID]chan<- sessionProtocolEvent
+	sessionState          uint8
+	timeout               time.Duration
 
 	// Read substream event and then output to service
 	protoEventChan chan protocolEvent
@@ -236,11 +237,10 @@ func (s *session) handleSessionEvent(event sessionEvent) {
 			return
 		}
 
-		for _, v := range s.protocolConfigs {
-			if v.id == inner.pid {
-				s.openProtoStream(v.name(inner.pid))
-				return
-			}
+		v, ok := s.protocolConfigsByID[inner.pid]
+		if ok {
+			s.openProtoStream(v.name(inner.pid))
+			return
 		}
 		// log.Printf("This protocol [%d] is not supported", inner.pid)
 
@@ -268,7 +268,6 @@ func (s *session) handleStreamEvent(event protocolEvent) {
 		inner := event.event.(subStreamCloseInner)
 		delete(s.subStreams, inner.sID)
 		delete(s.protoStreams, inner.pID)
-		s.serviceSender <- sessionEvent{tag: protocolClose, event: protocolCloseInner{id: s.context.Sid, pid: inner.pID}}
 
 	case subStreamSelectError:
 		name := event.event.(string)
@@ -286,15 +285,15 @@ func (s *session) handleStreamEvent(event protocolEvent) {
 }
 
 func (s *session) handleSubstream(conn net.Conn) {
-	infos := make(map[string]info, len(s.protocolConfigs))
-	for _, v := range s.protocolConfigs {
-		name := v.name(v.id)
+	infos := make(map[string]info, len(s.protocolConfigsByName))
+	for k, v := range s.protocolConfigsByName {
+
 		pinfo := ProtocolInfo{
-			name:           name,
+			name:           k,
 			supportVersion: v.supportVersions,
 		}
 		info := info{inner: pinfo, fn: v.selectVersion}
-		infos[name] = info
+		infos[k] = info
 	}
 
 	fn := generateFn(
@@ -313,7 +312,7 @@ func (s *session) openProtoStream(name string) {
 		return
 	}
 
-	versions := s.protocolConfigs[name].supportVersions
+	versions := s.protocolConfigsByName[name].supportVersions
 	info := ProtocolInfo{
 		name:           name,
 		supportVersion: versions,
@@ -344,7 +343,7 @@ func (s *session) selectProcedure(f func(chan<- protocolEvent)) {
 }
 
 func (s *session) openProtocol(event subStreamOpenInner) {
-	proto, ok := s.protocolConfigs[event.name]
+	proto, ok := s.protocolConfigsByName[event.name]
 
 	if !ok {
 		s.sessionState = abnormal
@@ -380,7 +379,6 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 
 	protoStream.protoOpen(event.version)
 
-	s.serviceSender <- sessionEvent{tag: protocolOpen, event: protocolOpenInner{id: s.context.Sid, pid: pid, version: event.version}}
 	s.nextStreamID++
 	go protoStream.runWrite()
 	go protoStream.runRead()

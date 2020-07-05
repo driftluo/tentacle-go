@@ -163,7 +163,7 @@ func (m *MetaBuilder) Build() ProtocolMeta {
 
 // ServiceBuilder builder for Service
 type ServiceBuilder struct {
-	inner   map[string]ProtocolMeta
+	inner   map[ProtocolID]ProtocolMeta
 	keyPair secio.PrivKey
 	forever bool
 	config  serviceConfig
@@ -172,7 +172,7 @@ type ServiceBuilder struct {
 // DefaultServiceBuilder create a default empty builder
 func DefaultServiceBuilder() *ServiceBuilder {
 	return &ServiceBuilder{
-		inner:   make(map[string]ProtocolMeta),
+		inner:   make(map[ProtocolID]ProtocolMeta),
 		keyPair: nil,
 		forever: false,
 		config: serviceConfig{
@@ -185,7 +185,7 @@ func DefaultServiceBuilder() *ServiceBuilder {
 
 // InsertProtocol insert a custom protocol
 func (s *ServiceBuilder) InsertProtocol(protocol ProtocolMeta) *ServiceBuilder {
-	s.inner[protocol.inner.name(protocol.inner.id)] = protocol
+	s.inner[protocol.inner.id] = protocol
 	return s
 }
 
@@ -258,14 +258,13 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 		nextSession:   SessionID(0),
 		beforeSends:   make(map[ProtocolID]BeforeSend),
 
-		handle:               handle,
-		sessionServiceProtos: make(map[SessionID]map[ProtocolID]bool),
-		serviceProtoHandles:  make(map[ProtocolID]chan<- serviceProtocolEvent),
-		sessionProtoHandles:  make(map[sessionProto]chan<- sessionProtocolEvent),
-		sessionEventChan:     sessionChan,
-		sessions:             make(map[SessionID]sessionController),
-		taskReceiver:         task,
-		quickTaskReceiver:    quickTask,
+		handle:              handle,
+		serviceProtoHandles: make(map[ProtocolID]chan<- serviceProtocolEvent),
+		sessionProtoHandles: make(map[sessionProto]chan<- sessionProtocolEvent),
+		sessionEventChan:    sessionChan,
+		sessions:            make(map[SessionID]sessionController),
+		taskReceiver:        task,
+		quickTaskReceiver:   quickTask,
 
 		shutdown: false,
 	}
