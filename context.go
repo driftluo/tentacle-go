@@ -2,7 +2,6 @@ package tentacle
 
 import (
 	"errors"
-	"net"
 	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
@@ -70,14 +69,22 @@ func (s *ServiceContext) send(event serviceTask) {
 	s.sendInner(s.taskSender, event)
 }
 
-// ListenAsync try create a new listener, if service is shutdown, return error
-func (s *ServiceContext) ListenAsync(addr net.Addr) {
+// ListenAsync try create a new listener, if addr not support, return error
+func (s *ServiceContext) ListenAsync(addr ma.Multiaddr) error {
+	if !isSupport(addr) {
+		return ErrNotSupport
+	}
 	s.quickSend(serviceTask{tag: taskListen, event: addr})
+	return nil
 }
 
-// Dial initiate a connection request to address
-func (s *ServiceContext) Dial(addr ma.Multiaddr, target TargetProtocol) {
+// Dial initiate a connection request to address, if addr not support, return error
+func (s *ServiceContext) Dial(addr ma.Multiaddr, target TargetProtocol) error {
+	if !isSupport(addr) {
+		return ErrNotSupport
+	}
 	s.quickSend(serviceTask{tag: taskDial, event: taskDialInner{addr: addr, target: target}})
+	return nil
 }
 
 // Disconnect a connection
@@ -236,13 +243,19 @@ func (s *Service) Listen(addr ma.Multiaddr) (ma.Multiaddr, error) {
 	return listener.Multiaddr(), nil
 }
 
-// ListenAsync try create a new listener, if service is shutdown, return error
-func (s *Service) ListenAsync(addr net.Addr) error {
+// ListenAsync try create a new listener, if service is shutdown/addr not support, return error
+func (s *Service) ListenAsync(addr ma.Multiaddr) error {
+	if !isSupport(addr) {
+		return ErrNotSupport
+	}
 	return s.quickSend(serviceTask{tag: taskListen, event: addr})
 }
 
-// Dial initiate a connection request to address
+// Dial initiate a connection request to address, if service is shutdown/addr not support, return error
 func (s *Service) Dial(addr ma.Multiaddr, target TargetProtocol) error {
+	if !isSupport(addr) {
+		return ErrNotSupport
+	}
 	return s.quickSend(serviceTask{tag: taskDial, event: taskDialInner{addr: addr, target: target}})
 }
 
