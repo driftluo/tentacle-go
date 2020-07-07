@@ -249,7 +249,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 				s.init = true
 			})
 			s.state.increase()
-			go s.dial(inner.addr, inner.target)
+			s.dial(inner.addr, inner.target)
 		}
 
 	case taskListen:
@@ -701,28 +701,30 @@ func (s *service) dial(addr ma.Multiaddr, target TargetProtocol) {
 	s.dialProtocols[addr] = target
 	resChan := make(chan interface{})
 	go func() {
-		conn, err := manet.Dial(addr)
-		if err != nil {
-			resChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
-		}
-		resChan <- nil
-		go handshake(conn, SessionType(0), addr, s.serviceContext.Key, s.config.timeout, nil, s.sessionEventChan)
-	}()
+		go func() {
+			conn, err := manet.Dial(addr)
+			if err != nil {
+				resChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
+			}
+			resChan <- nil
+			go handshake(conn, SessionType(0), addr, s.serviceContext.Key, s.config.timeout, nil, s.sessionEventChan)
+		}()
 
-	select {
-	case <-time.After(s.config.timeout):
-		protectRun(
-			func() {
-				s.sessionEventChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: ErrDialTimeout}}
-			},
-			nil,
-		)
-	case inner := <-resChan:
-		event, ok := inner.(sessionEvent)
-		if ok {
-			protectRun(func() { s.sessionEventChan <- event }, nil)
+		select {
+		case <-time.After(s.config.timeout):
+			protectRun(
+				func() {
+					s.sessionEventChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: ErrDialTimeout}}
+				},
+				nil,
+			)
+		case inner := <-resChan:
+			event, ok := inner.(sessionEvent)
+			if ok {
+				protectRun(func() { s.sessionEventChan <- event }, nil)
+			}
 		}
-	}
+	}()
 }
 
 func (s *service) listen(addr ma.Multiaddr) {

@@ -203,9 +203,9 @@ func repeatDialTest(secioC bool) error {
 	return nil
 }
 
-func emptyRepeatDialTest(secioC bool) {
+func emptyRepeatDialTest(secioC bool) error {
 	meta1, _ := createRepeatMeta(tentacle.ProtocolID(1))
-	shandle1, _ := createEmptyRepeatSHandle()
+	shandle1, errRecv1 := createEmptyRepeatSHandle()
 
 	var server1 *tentacle.Service
 	if secioC {
@@ -214,9 +214,19 @@ func emptyRepeatDialTest(secioC bool) {
 		server1 = tentacle.DefaultServiceBuilder().Forever(true).InsertProtocol(meta1).Build(shandle1)
 	}
 
-	addr, _ := ma.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/1"))
-	server1.Dial(addr, tentacle.TargetProtocol{Tag: tentacle.All})
+	for i := 0; i < 2; i++ {
+		for j := 1; j < 8; j++ {
+			addr, _ := ma.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", j))
+			server1.Dial(addr, tentacle.TargetProtocol{Tag: tentacle.All})
+		}
+	}
+
 	time.Sleep(1 * time.Second)
+	c := checkDialErrors(errRecv1, 15*time.Second, 10)
+	if c != 10 {
+		return errors.New("c,d fail")
+	}
+	return nil
 }
 
 func TestRepeatDialWithSecio(t *testing.T) {
