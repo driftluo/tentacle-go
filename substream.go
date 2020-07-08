@@ -123,7 +123,9 @@ func (s *subStream) runRead() {
 }
 
 func (s *subStream) errorClose(err error) {
-	s.eventSender <- protocolEvent{tag: subStreamOtherError, event: subStreamOtherErrorInner{err: err, pid: s.pID}}
+	protectRun(func() {
+		s.eventSender <- protocolEvent{tag: subStreamOtherError, event: subStreamOtherErrorInner{err: err, pid: s.pID}}
+	}, nil)
 	s.closeStream()
 }
 
@@ -135,8 +137,9 @@ func (s *subStream) closeStream() {
 	}
 	if s.sessionProtoSender != nil {
 		s.sessionProtoSender <- sessionProtocolEvent{tag: sessionProtocolClosed}
-		s.sessionProtoSender <- sessionProtocolEvent{tag: sessionProtocolDisconnected}
-		defer protectRun(func() { close(s.sessionProtoSender) }, nil)
+		if s.context.closed {
+			s.sessionProtoSender <- sessionProtocolEvent{tag: sessionProtocolDisconnected}
+		}
 	}
 
 	// if session close receiver first, here may panic, just ignore it

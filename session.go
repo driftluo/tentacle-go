@@ -20,6 +20,8 @@ const (
 	normal
 	// Abnormal state
 	abnormal
+	// close
+	sessionShutdown
 )
 
 const (
@@ -173,6 +175,8 @@ func (s *session) runReceiver() {
 				s.closeSession()
 				return
 			}
+		case sessionShutdown:
+			return
 		}
 	}
 }
@@ -189,9 +193,15 @@ func (s *session) runAccept() {
 			switch err {
 			case yamux.ErrSessionShutdown, io.EOF:
 				s.sessionState = remoteClose
+				if len(s.protoStreams) != 0 {
+					s.closeAllProto()
+				} else {
+					s.closeSession()
+				}
 			default:
 				s.sessionState = abnormal
 				s.serviceSender <- sessionEvent{tag: muxerError, event: muxerErrorInner{id: s.context.Sid, err: err}}
+				s.closeSession()
 			}
 			break
 		}
@@ -374,12 +384,22 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 }
 
 func (s *session) closeSession() {
+	if s.sessionState == sessionShutdown {
+		return
+	}
 	defer protectRun(func() { close(s.protoEventChan) }, nil)
-	defer s.socket.GoAway()
-	defer s.socket.Close()
+	if !s.socket.IsClosed() {
+		defer s.socket.GoAway()
+		defer s.socket.Close()
+	}
+
+	for _, v := range s.sessionProtoSenders {
+		v <- sessionProtocolEvent{tag: sessionProtocolDisconnected}
+	}
 
 	s.context.closed = true
 	s.serviceSender <- sessionEvent{tag: sessionClose, event: s.context.Sid}
+	s.sessionState = sessionShutdown
 }
 
 func (s *session) closeAllProto() {

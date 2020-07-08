@@ -289,10 +289,10 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 		}
 
 	case taskSetProtocolSessionNotify:
-		inner := event.event.(taskRemoveProtocolSessionNotifyInner)
+		inner := event.event.(taskSetProtocolSessionNotifyInner)
 		sender, ok := s.sessionProtoHandles[sessionProto{sid: inner.sid, pid: inner.pid}]
 		if ok {
-			sender <- sessionProtocolEvent{tag: sessionProtocolNotify, event: inner.token}
+			sender <- sessionProtocolEvent{tag: sessionProtocolSetNotify, event: protocolSetNotifyInner{token: inner.token, interval: inner.interval}}
 		}
 
 	case taskRemoveProtocolSessionNotify:
@@ -456,7 +456,7 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 			paddr, _ := ma.NewMultiaddr(fmt.Sprintf("/p2p/%s", remotePubkey.PeerID().Bese58String()))
 			remoteAddr = remoteAddr.Encapsulate(paddr)
 		} else {
-			if peerid.IsKey(remotePubkey) {
+			if !peerid.IsKey(remotePubkey) {
 				defer conn.Close()
 				if s.handle != nil {
 					s.handle.HandleError(s.serviceContext, ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: PeerIDNotMatch, Addr: remoteAddr}})
