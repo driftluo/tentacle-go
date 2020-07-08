@@ -58,17 +58,6 @@ type protocolErrorInner struct {
 	err error
 }
 
-type protocolOpenInner struct {
-	id      SessionID
-	pid     ProtocolID
-	version string
-}
-
-type protocolCloseInner struct {
-	id  SessionID
-	pid ProtocolID
-}
-
 type protocolMessageInner struct {
 	id   SessionID
 	pid  ProtocolID
@@ -230,26 +219,26 @@ func (s *session) handleSessionEvent(event sessionEvent) {
 		}
 
 	case protocolOpen:
-		inner := event.event.(protocolOpenInner)
-		_, ok := s.protoStreams[inner.pid]
+		pid := event.event.(ProtocolID)
+		_, ok := s.protoStreams[pid]
 
 		if ok {
 			return
 		}
 
-		v, ok := s.protocolConfigsByID[inner.pid]
+		v, ok := s.protocolConfigsByID[pid]
 		if ok {
-			s.openProtoStream(v.name(inner.pid))
+			s.openProtoStream(v.name(pid))
 			return
 		}
-		// log.Printf("This protocol [%d] is not supported", inner.pid)
+		// log.Printf("This protocol [%d] is not supported", pid)
 
 	case protocolClose:
-		inner := event.event.(protocolCloseInner)
+		pid := event.event.(ProtocolID)
 
-		streamid, ok := s.protoStreams[inner.pid]
+		streamid, ok := s.protoStreams[pid]
 		if !ok {
-			// log.Printf("This protocol [%d] has been closed", inner.pid)
+			// log.Printf("This protocol [%d] has been closed", pid)
 			return
 		}
 

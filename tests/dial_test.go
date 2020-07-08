@@ -244,9 +244,15 @@ func TestRepeatDial(t *testing.T) {
 }
 
 func TestDialNoNotifyWithSecio(t *testing.T) {
-	emptyRepeatDialTest(true)
+	err := emptyRepeatDialTest(true)
+	if err != nil {
+		t.Fatal("empty repeat dial with secio fail")
+	}
 }
 
 func TestDialNoNotify(t *testing.T) {
-	emptyRepeatDialTest(false)
+	err := emptyRepeatDialTest(false)
+	if err != nil {
+		t.Fatal("empty repeat dial fail")
+	}
 }

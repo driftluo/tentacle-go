@@ -217,7 +217,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 		switch inner.target.Tag {
 		case All:
 			for _, v := range s.protoclConfigs {
-				s.protocolOpen(inner.sid, v.inner.id, "")
+				s.protocolOpen(inner.sid, v.inner.id)
 			}
 
 		case Single:
@@ -225,7 +225,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 			if !ok {
 				return
 			}
-			s.protocolOpen(inner.sid, pid, "")
+			s.protocolOpen(inner.sid, pid)
 
 		case Multi:
 			pids, ok := inner.target.Target.([]ProtocolID)
@@ -233,7 +233,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 				return
 			}
 			for _, pid := range pids {
-				s.protocolOpen(inner.sid, pid, "")
+				s.protocolOpen(inner.sid, pid)
 			}
 		}
 
@@ -620,17 +620,17 @@ func (s *service) protocolClose(sid SessionID, pid ProtocolID) {
 		return
 	}
 
-	control.eventSender <- sessionEvent{tag: protocolClose, event: protocolCloseInner{id: sid, pid: pid}}
+	control.eventSender <- sessionEvent{tag: protocolClose, event: pid}
 }
 
-func (s *service) protocolOpen(sid SessionID, pid ProtocolID, version string) {
+func (s *service) protocolOpen(sid SessionID, pid ProtocolID) {
 	// session not exist
 	control, ok := s.sessions[sid]
 	if !ok {
 		return
 	}
 
-	control.eventSender <- sessionEvent{tag: protocolOpen, event: protocolOpenInner{id: sid, pid: pid, version: version}}
+	control.eventSender <- sessionEvent{tag: protocolOpen, event: pid}
 }
 
 func (s *service) sessionHandlesOpen(sid SessionID) {
