@@ -12,7 +12,6 @@ const (
 	serviceProtocolSetNotify
 	serviceProtocolRemoveNotify
 	serviceProtocolNotify
-	serviceProtocolUpdate
 )
 
 // As a firm believer in the type system, this is the last stubborn stand against the Go type!
@@ -149,7 +148,6 @@ const (
 	sessionProtocolSetNotify
 	sessionProtocolRemoveNotify
 	sessionProtocolNotify
-	sessionProtocolUpdate
 )
 
 // As a firm believer in the type system, this is the last stubborn stand against the Go type!

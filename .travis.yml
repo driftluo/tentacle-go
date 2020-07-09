@@ -1,0 +1,9 @@
+sudo: true
+
+language: go
+
+go:
+  - master
+
+script:
+  - make test

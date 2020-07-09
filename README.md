@@ -16,13 +16,29 @@ $ go build example/simple.go
 $ ./simple server
 ```
 
-On one terminal:
+On another terminal:
 
 ```bash
 $ ./simple
 ```
 
 Now you can see some data interaction information on the terminal.
+
+### Communicate with the Rust version implementation
+
+```bash
+$ git clone https://github.com/nervosnetwork/tentacle.git
+$ RUST_LOG=simple=info,tentacle=debug cargo run --example simple --features molc -- server
+```
+
+On another terminal:
+
+```bash
+$ go build example/simple.go
+$ ./simple
+```
+
+Or, you can use Go's server to communicate with Rust's client
 
 ### API
 
