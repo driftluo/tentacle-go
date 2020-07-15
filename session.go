@@ -3,6 +3,7 @@ package tentacle
 import (
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
@@ -116,6 +117,8 @@ type session struct {
 	subStreams      map[streamID]chan<- protocolEvent
 	serviceReceiver <-chan sessionEvent
 	quickReceiver   <-chan sessionEvent
+
+	sync.Mutex
 }
 
 func (s *session) runReceiver() {
@@ -384,6 +387,9 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 }
 
 func (s *session) closeSession() {
+	s.Lock()
+	defer s.Unlock()
+
 	if s.sessionState == sessionShutdown {
 		return
 	}
@@ -403,7 +409,14 @@ func (s *session) closeSession() {
 }
 
 func (s *session) closeAllProto() {
-	s.context.closed = true
+	s.Lock()
+	defer s.Unlock()
+	if !s.context.closed {
+		s.context.closed = true
+		for _, sender := range s.subStreams {
+			sender <- protocolEvent{tag: subStreamClose}
+		}
+	}
 }
 
 func generateFn(f func() (net.Conn, string, string, error)) func(chan<- protocolEvent) {
