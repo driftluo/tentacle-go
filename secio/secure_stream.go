@@ -9,8 +9,10 @@ import (
 )
 
 var _ net.Conn = &SecureConn{}
+var _ msgio.ReadWriteCloser = &SecureConn{}
 
 // SecureConn is a stream for secio
+// Note: Please do not use streaming read and msg read interchangeably, as this may cause data confusion
 type SecureConn struct {
 	secioConn msgio.ReadWriteCloser
 
@@ -28,8 +30,28 @@ func (sec *SecureConn) Read(b []byte) (n int, err error) {
 	return sec.secioConn.Read(b)
 }
 
-func (sec *SecureConn) Write(b []byte) (n int, err error) {
+// ReadMsg repub msgio.ReadWriteCloser
+func (sec *SecureConn) ReadMsg() ([]byte, error) {
+	return sec.secioConn.ReadMsg()
+}
+
+// ReleaseMsg repub msgio.ReadWriteCloser
+func (sec *SecureConn) ReleaseMsg(b []byte) {
+	sec.secioConn.ReleaseMsg(b)
+}
+
+// NextMsgLen repub msgio.ReadWriteClose
+func (sec *SecureConn) NextMsgLen() (int, error) {
+	return sec.secioConn.NextMsgLen()
+}
+
+func (sec *SecureConn) Write(b []byte) (int, error) {
 	return sec.secioConn.Write(b)
+}
+
+// WriteMsg repub msgio.ReadWriteClose
+func (sec *SecureConn) WriteMsg(b []byte) error {
+	return sec.secioConn.WriteMsg(b)
 }
 
 // Close closes the connection.
