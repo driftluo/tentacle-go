@@ -228,7 +228,6 @@ func (s *session) handleSessionEvent(event sessionEvent) {
 			s.closeSession()
 		} else {
 			s.sessionState = localClose
-			s.closeAllProto()
 		}
 
 	case protocolOpen:
