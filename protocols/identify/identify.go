@@ -19,8 +19,7 @@ const defaultTimeout = 8
 const maxAddrs = 10
 
 const (
-	duplicateListenAddrs uint8 = iota
-	duplicateObservedAddr
+	duplicateReceived uint8 = iota
 	timeout
 	invalidData
 	tooManyAddresses
@@ -34,10 +33,8 @@ type Misbehavior struct {
 func (m *Misbehavior) String() string {
 	var name string
 	switch m.tag {
-	case duplicateListenAddrs:
-		name = "DuplicateListenAddrs"
-	case duplicateObservedAddr:
-		name = "DuplicateObservedAddr"
+	case duplicateReceived:
+		name = "DuplicateReceived"
 	case timeout:
 		name = "Timeut"
 	case invalidData:
@@ -88,36 +85,34 @@ type CallBack interface {
 }
 
 type remoteInfo struct {
-	pid          secio.PeerID
-	session      *tentacle.SessionContext
-	connectedAt  time.Time
-	timeout      time.Duration
-	listenAddrs  []multiaddr.Multiaddr
-	observedAddr *multiaddr.Multiaddr
+	pid         secio.PeerID
+	session     *tentacle.SessionContext
+	connectedAt time.Time
+	timeout     time.Duration
+	received    bool
 }
 
 func newInfo(session *tentacle.SessionContext, timeout time.Duration) remoteInfo {
 	return remoteInfo{
-		pid:          session.RemotePub.PeerID(),
-		session:      session,
-		connectedAt:  time.Now(),
-		timeout:      timeout,
-		listenAddrs:  nil,
-		observedAddr: nil,
+		pid:         session.RemotePub.PeerID(),
+		session:     session,
+		connectedAt: time.Now(),
+		timeout:     timeout,
+		received:    false,
 	}
 }
 
 // Protocol identify protocol stuct
 type Protocol struct {
 	callback     CallBack
-	remoteInfos  map[tentacle.SessionID]remoteInfo
+	remoteInfos  map[tentacle.SessionID]*remoteInfo
 	secioEnabled bool
 	globalIPOnly bool
 }
 
 // NewProtocol create a identify protocol
 func NewProtocol(callback CallBack) *Protocol {
-	return &Protocol{callback: callback, remoteInfos: make(map[tentacle.SessionID]remoteInfo), globalIPOnly: true, secioEnabled: true}
+	return &Protocol{callback: callback, remoteInfos: make(map[tentacle.SessionID]*remoteInfo), globalIPOnly: true, secioEnabled: true}
 }
 
 // GlobalIPOnly turning off global ip only mode will allow any ip to be broadcast, default is true
@@ -129,8 +124,8 @@ func (p *Protocol) GlobalIPOnly(globalIPOnly bool) *Protocol {
 func (p *Protocol) processListens(context *tentacle.ProtocolContextRef, listens []multiaddr.Multiaddr) MisbehaveResult {
 	info := p.remoteInfos[context.Sid]
 
-	if info.listenAddrs != nil {
-		return p.callback.Misbehave(info.pid, Misbehavior{tag: duplicateListenAddrs})
+	if info.received {
+		return p.callback.Misbehave(info.pid, Misbehavior{tag: duplicateReceived})
 	} else if len(listens) > maxAddrs {
 		return p.callback.Misbehave(info.pid, Misbehavior{tag: tooManyAddresses})
 	} else {
@@ -142,7 +137,7 @@ func (p *Protocol) processListens(context *tentacle.ProtocolContextRef, listens 
 			}
 		}
 		p.callback.AddRemoteListenAddrs(info.pid, listensNew)
-		info.listenAddrs = listensNew
+		info.received = true
 		return Continue()
 	}
 }
@@ -150,17 +145,13 @@ func (p *Protocol) processListens(context *tentacle.ProtocolContextRef, listens 
 func (p *Protocol) processObserved(context *tentacle.ProtocolContextRef, observed multiaddr.Multiaddr) MisbehaveResult {
 	info := p.remoteInfos[context.Sid]
 
-	if info.observedAddr != nil {
-		return p.callback.Misbehave(info.pid, Misbehavior{tag: duplicateObservedAddr})
-	}
-
 	if !p.globalIPOnly || manet.IsPublicAddr(observed) {
 		res := p.callback.AddObservedAddr(info.pid, observed, info.session.Ty)
 		if res.isDisconnect() {
 			return Disconnect()
 		}
 	}
-	info.observedAddr = &observed
+	info.received = true
 	return Continue()
 }
 
@@ -180,11 +171,11 @@ func (p *Protocol) Connected(ctx *tentacle.ProtocolContextRef, version string) {
 	}
 
 	remotei := newInfo(ctx.SessionContext, defaultTimeout*time.Second)
-	p.remoteInfos[ctx.Sid] = remotei
+	p.remoteInfos[ctx.Sid] = &remotei
 
-	listenAddrs := make([]multiaddr.Multiaddr, maxAddrs)
 	raw := p.callback.LocalListenAddrs()
-	for i := 0; i < len(raw) || i <= maxAddrs-1; i++ {
+	listenAddrs := make([]multiaddr.Multiaddr, len(raw))
+	for i := 0; i < len(raw) && i <= maxAddrs-1; i++ {
 		if !p.globalIPOnly || manet.IsPublicAddr(raw[i]) {
 			listenAddrs[i] = raw[i]
 		}
@@ -193,7 +184,6 @@ func (p *Protocol) Connected(ctx *tentacle.ProtocolContextRef, version string) {
 	p2p, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/p2p/%s", ctx.RemotePub.PeerID().Bese58String()))
 	observedAddr := ctx.RemoteAddr.Decapsulate(p2p)
 	msg := identifyMessage{listenAddrs: listenAddrs, observedAddr: observedAddr, identify: p.callback.Identify()}
-
 	ctx.QuickSendMessage(msg.encode())
 }
 
@@ -237,7 +227,7 @@ func (p *Protocol) Notify(ctx *tentacle.ProtocolContext, token uint64) {
 	now := time.Now()
 
 	for k, v := range p.remoteInfos {
-		if (v.listenAddrs == nil || v.observedAddr == nil) && v.connectedAt.Add(v.timeout).After(now) {
+		if !v.received && v.connectedAt.Add(v.timeout).After(now) {
 			ctx.Disconnect(k)
 		}
 	}
