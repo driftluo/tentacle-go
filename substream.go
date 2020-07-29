@@ -3,6 +3,7 @@ package tentacle
 import (
 	"io"
 	"net"
+	"sync/atomic"
 )
 
 // ProtocolID define the protocol id
@@ -18,6 +19,7 @@ const (
 	subStreamSelectError
 	subStreamOtherError
 	subStreamTimeOutCheck
+	stateChange
 )
 
 // As a firm believer in the type system, this is the last stubborn stand against the Go type!
@@ -54,7 +56,7 @@ type subStream struct {
 	pID     ProtocolID
 	sID     streamID
 	context *SessionContext
-	dead    bool
+	dead    atomic.Value
 
 	// Output protocol event to session
 	eventSender chan<- protocolEvent
@@ -80,7 +82,7 @@ func (s *subStream) protoOpen(version string) {
 
 func (s *subStream) runWrite() {
 	for event := range s.eventReceiver {
-		if s.dead || s.context.closed {
+		if s.dead.Load().(bool) || s.context.closed.Load().(bool) {
 			break
 		}
 		switch event.tag {
@@ -88,12 +90,12 @@ func (s *subStream) runWrite() {
 			msg := event.event.(subStreamMessageInner)
 			err := s.socket.WriteMsg(msg.data)
 			if err != nil {
-				s.dead = true
+				s.dead.Store(true)
 				s.errorClose(err)
 				break
 			}
 		case subStreamClose:
-			s.dead = true
+			s.dead.Store(true)
 			s.closeStream()
 			break
 		}
@@ -102,13 +104,13 @@ func (s *subStream) runWrite() {
 
 func (s *subStream) runRead() {
 	for {
-		if s.context.closed {
+		if s.context.closed.Load().(bool) {
 			s.closeStream()
 			return
 		}
 		readMsg, err := s.socket.ReadMsg()
 		if err != nil {
-			s.dead = true
+			s.dead.Store(true)
 			switch err {
 			case io.EOF:
 				s.closeStream()
@@ -137,7 +139,7 @@ func (s *subStream) closeStream() {
 	}
 	if s.sessionProtoSender != nil {
 		s.sessionProtoSender <- sessionProtocolEvent{tag: sessionProtocolClosed}
-		if s.context.closed {
+		if s.context.closed.Load().(bool) {
 			s.sessionProtoSender <- sessionProtocolEvent{tag: sessionProtocolDisconnected}
 		}
 	}

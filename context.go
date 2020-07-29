@@ -2,6 +2,7 @@ package tentacle
 
 import (
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
@@ -45,7 +46,7 @@ type SessionContext struct {
 	RemoteAddr ma.Multiaddr
 	// remote pubkey, may nil on no secio mode
 	RemotePub secio.PubKey
-	closed    bool
+	closed    atomic.Value
 }
 
 // ServiceContext context with current service
@@ -193,7 +194,7 @@ type sessionController struct {
 type Service struct {
 	state  *serviceState
 	key    secio.PrivKey
-	closed *bool
+	closed *atomic.Value
 
 	quickTaskSender chan<- serviceTask
 	taskSender      chan<- serviceTask
@@ -204,7 +205,7 @@ func (s *Service) sendInner(sender chan<- serviceTask, event serviceTask) {
 }
 
 func (s *Service) quickSend(event serviceTask) error {
-	if *s.closed {
+	if s.closed.Load().(bool) {
 		return ErrBrokenPipe
 	}
 	s.sendInner(s.quickTaskSender, event)
@@ -212,7 +213,7 @@ func (s *Service) quickSend(event serviceTask) error {
 }
 
 func (s *Service) send(event serviceTask) error {
-	if *s.closed {
+	if s.closed.Load().(bool) {
 		return ErrBrokenPipe
 	}
 	s.sendInner(s.taskSender, event)
@@ -331,5 +332,5 @@ func (s *Service) Shutdown() error {
 
 // IsShutdown determine whether to shutdown
 func (s *Service) IsShutdown() bool {
-	return *s.closed
+	return s.closed.Load().(bool)
 }

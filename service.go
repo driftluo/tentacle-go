@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
@@ -42,7 +43,7 @@ const (
 )
 
 type serviceListener struct {
-	shutdown       *bool
+	shutdown       *atomic.Value
 	listener       manet.Listener
 	eventSender    chan<- sessionEvent
 	config         serviceConfig
@@ -51,14 +52,14 @@ type serviceListener struct {
 
 func (s *serviceListener) run() {
 	for {
-		if *s.shutdown {
+		if s.shutdown.Load().(bool) {
 			break
 		}
 
 		conn, err := s.listener.Accept()
 
 		if err != nil {
-			if *s.shutdown {
+			if s.shutdown.Load().(bool) {
 				return
 			}
 			defer s.listener.Close()
@@ -141,14 +142,14 @@ type service struct {
 	// Unable to use global variables, which can cause only one service to be started in a process
 	once     sync.Once
 	init     bool
-	shutdown bool
+	shutdown atomic.Value
 }
 
 func (s *service) run() {
 	s.initServiceProtoHandles()
 	for {
 		if len(s.sessions) == 0 && len(s.listens) == 0 && s.state.isShutdown() && s.init {
-			s.shutdown = true
+			s.shutdown.Store(true)
 			break
 		}
 
@@ -315,7 +316,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 		for id := range s.sessions {
 			s.sessionClose(id, external)
 		}
-		s.shutdown = true
+		s.shutdown.Store(true)
 	}
 }
 
@@ -477,6 +478,9 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 	quick := make(chan sessionEvent, sendSize)
 	event := make(chan sessionEvent, sendSize)
 
+	closed := atomic.Value{}
+	closed.Store(false)
+
 	control := sessionController{
 		quickSender: quick,
 		eventSender: event,
@@ -484,7 +488,7 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 			Sid:        s.nextSession,
 			RemoteAddr: remoteAddr,
 			Ty:         ty,
-			closed:     false,
+			closed:     closed,
 			RemotePub:  remotePubkey,
 		},
 	}
@@ -516,6 +520,9 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 		socket, _ = yamux.Server(conn, s.config.yamuxConfig)
 	}
 
+	state := atomic.Value{}
+	state.Store(normal)
+
 	session := session{
 		socket:                socket,
 		protocolConfigsByName: sessionProtoConfigsByName,
@@ -525,7 +532,7 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 		protoStreams:          make(map[ProtocolID]streamID),
 		serviceProtoSenders:   s.serviceProtoHandles,
 		sessionProtoSenders:   sessionProtoSenders,
-		sessionState:          normal,
+		sessionState:          state,
 		timeout:               s.config.timeout,
 
 		protoEventChan: make(chan protocolEvent, receiveSize),

@@ -31,6 +31,23 @@ type Misbehavior struct {
 	tag uint8
 }
 
+func (m *Misbehavior) String() string {
+	var name string
+	switch m.tag {
+	case duplicateListenAddrs:
+		name = "DuplicateListenAddrs"
+	case duplicateObservedAddr:
+		name = "DuplicateObservedAddr"
+	case timeout:
+		name = "Timeut"
+	case invalidData:
+		name = "InvalidData"
+	case tooManyAddresses:
+		name = "tooManyAddresses"
+	}
+	return name
+}
+
 // MisbehaveResult report result
 type MisbehaveResult struct {
 	tag uint8

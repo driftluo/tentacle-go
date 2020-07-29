@@ -3,7 +3,7 @@ package tentacle
 import (
 	"io"
 	"net"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
@@ -106,7 +106,7 @@ type session struct {
 	protoStreams          map[ProtocolID]streamID
 	serviceProtoSenders   map[ProtocolID]chan<- serviceProtocolEvent
 	sessionProtoSenders   map[ProtocolID]chan<- sessionProtocolEvent
-	sessionState          uint8
+	sessionState          atomic.Value
 	timeout               time.Duration
 
 	// Read substream event and then output to service
@@ -117,17 +117,15 @@ type session struct {
 	subStreams      map[streamID]chan<- protocolEvent
 	serviceReceiver <-chan sessionEvent
 	quickReceiver   <-chan sessionEvent
-
-	sync.Mutex
 }
 
 func (s *session) runReceiver() {
 	// In theory, this value will not appear, but if it does, it means that the channel was accidentally closed.
 	closed := func(ok bool) bool {
 		if !ok {
-			s.context.closed = true
-			if s.sessionState == normal {
-				s.sessionState = localClose
+			s.context.closed.Store(true)
+			if s.sessionState.Load().(uint8) == normal {
+				s.sessionState.Store(localClose)
 			}
 			return true
 		}
@@ -135,7 +133,8 @@ func (s *session) runReceiver() {
 	}
 
 	for {
-		if s.sessionState == localClose {
+		state := s.sessionState.Load().(uint8)
+		if state == localClose || state == abnormal {
 			goto CASE_STATE
 		}
 
@@ -167,7 +166,7 @@ func (s *session) runReceiver() {
 		}
 
 	CASE_STATE:
-		switch s.sessionState {
+		switch s.sessionState.Load().(uint8) {
 		case localClose, abnormal:
 			s.closeSession()
 			return
@@ -186,7 +185,7 @@ func (s *session) runReceiver() {
 
 func (s *session) runAccept() {
 	for {
-		if s.sessionState != normal {
+		if s.sessionState.Load().(uint8) != normal {
 			break
 		}
 
@@ -195,17 +194,12 @@ func (s *session) runAccept() {
 		if err != nil {
 			switch err {
 			case yamux.ErrSessionShutdown, io.EOF:
-				s.sessionState = remoteClose
-				if len(s.protoStreams) != 0 {
-					s.closeAllProto()
-				} else {
-					s.closeSession()
-				}
+				s.sessionState.Store(remoteClose)
 			default:
-				s.sessionState = abnormal
+				s.sessionState.Store(abnormal)
 				s.serviceSender <- sessionEvent{tag: muxerError, event: muxerErrorInner{id: s.context.Sid, err: err}}
-				s.closeSession()
 			}
+			protectRun(func() { s.protoEventChan <- protocolEvent{tag: stateChange} }, nil)
 			break
 		}
 		go s.handleSubstream(conn)
@@ -227,7 +221,7 @@ func (s *session) handleSessionEvent(event sessionEvent) {
 		if len(s.subStreams) == 0 {
 			s.closeSession()
 		} else {
-			s.sessionState = localClose
+			s.sessionState.Store(localClose)
 		}
 
 	case protocolOpen:
@@ -282,6 +276,8 @@ func (s *session) handleStreamEvent(event protocolEvent) {
 		if len(s.subStreams) == 0 {
 			s.serviceSender <- sessionEvent{tag: sessionTimeout, event: s.context.Sid}
 		}
+	case stateChange:
+		return
 	}
 }
 
@@ -347,7 +343,7 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 	proto, ok := s.protocolConfigsByName[event.name]
 
 	if !ok {
-		s.sessionState = abnormal
+		s.sessionState.Store(abnormal)
 		s.serviceSender <- sessionEvent{tag: protocolSelectError, event: protocolSelectErrorInner{id: s.context.Sid, protoName: ""}}
 		return
 	}
@@ -360,13 +356,15 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 	}
 
 	protoChan := make(chan protocolEvent, sendSize)
+	dead := atomic.Value{}
+	dead.Store(false)
 
 	protoStream := subStream{
 		socket:  proto.codec(event.conn),
 		pID:     pid,
 		sID:     s.nextStreamID,
 		context: s.context,
-		dead:    false,
+		dead:    dead,
 
 		eventSender:        s.protoEventChan,
 		eventReceiver:      protoChan,
@@ -386,13 +384,9 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 }
 
 func (s *session) closeSession() {
-	s.Lock()
-	defer s.Unlock()
-
-	if s.sessionState == sessionShutdown {
+	if s.sessionState.Load().(uint8) == sessionShutdown {
 		return
 	}
-	defer protectRun(func() { close(s.protoEventChan) }, nil)
 	if !s.socket.IsClosed() {
 		defer s.socket.GoAway()
 		defer s.socket.Close()
@@ -402,16 +396,14 @@ func (s *session) closeSession() {
 		v <- sessionProtocolEvent{tag: sessionProtocolDisconnected}
 	}
 
-	s.context.closed = true
+	s.context.closed.Store(true)
 	s.serviceSender <- sessionEvent{tag: sessionClose, event: s.context.Sid}
-	s.sessionState = sessionShutdown
+	s.sessionState.Store(sessionShutdown)
 }
 
 func (s *session) closeAllProto() {
-	s.Lock()
-	defer s.Unlock()
-	if !s.context.closed {
-		s.context.closed = true
+	if !s.context.closed.Load().(bool) {
+		s.context.closed.Store(true)
 		for _, sender := range s.subStreams {
 			sender <- protocolEvent{tag: subStreamClose}
 		}

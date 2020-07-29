@@ -105,6 +105,8 @@ func (s *serviceState) preShutdown() {
 }
 
 func (s *serviceState) isShutdown() bool {
+	s.Lock()
+	defer s.Unlock()
 	var res bool
 	switch s.tag {
 	case running:

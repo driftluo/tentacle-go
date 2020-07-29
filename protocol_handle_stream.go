@@ -1,6 +1,7 @@
 package tentacle
 
 import (
+	"sync/atomic"
 	"time"
 )
 
@@ -40,7 +41,7 @@ type serviceProtocolStream struct {
 	handleContext ProtocolContext
 	sessions      map[SessionID]*SessionContext
 	notifys       map[uint64]time.Duration
-	shutdown      *bool
+	shutdown      *atomic.Value
 
 	eventReceiver <-chan serviceProtocolEvent
 	notifyChan    chan uint64
@@ -51,14 +52,14 @@ func (s *serviceProtocolStream) run() {
 	// In theory, this value will not appear, but if it does, it means that the channel was accidentally closed.
 	closed := func(ok bool) bool {
 		if !ok {
-			*s.shutdown = true
+			s.shutdown.Store(true)
 			return true
 		}
 		return false
 	}
 
 	for {
-		if *s.shutdown {
+		if s.shutdown.Load().(bool) {
 			defer protectRun(func() { close(s.notifyChan) }, nil)
 			break
 		}
@@ -179,8 +180,7 @@ func (s *sessionProtocolStream) run() {
 	}
 
 	for {
-		if s.shutdown || s.context.closed {
-			defer protectRun(func() { close(s.notifyChan) }, nil)
+		if s.shutdown || s.context.closed.Load().(bool) {
 			break
 		}
 		select {
@@ -212,7 +212,6 @@ func (s *sessionProtocolStream) handleEvent(event sessionProtocolEvent) {
 		protectRun(func() { s.handle.Disconnected(s.handleContext.toRef(s.context)) }, reportFn)
 
 	case sessionProtocolDisconnected:
-		defer protectRun(func() { close(s.notifyChan) }, nil)
 		s.shutdown = true
 
 	case sessionProtocolReceived:

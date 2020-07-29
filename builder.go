@@ -3,6 +3,7 @@ package tentacle
 import (
 	"io"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
@@ -241,6 +242,9 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 	task := make(chan serviceTask, sendSize)
 	sessionChan := make(chan sessionEvent, sendSize)
 
+	shutdown := atomic.Value{}
+	shutdown.Store(false)
+
 	service := service{
 		protoclConfigs: s.inner,
 		serviceContext: &ServiceContext{
@@ -266,7 +270,7 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 		taskReceiver:        task,
 		quickTaskReceiver:   quickTask,
 
-		shutdown: false,
+		shutdown: shutdown,
 	}
 
 	go service.run()
