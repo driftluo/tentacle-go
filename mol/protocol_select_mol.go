@@ -171,13 +171,12 @@ type StringVecBuilder struct {
 
 func (s *StringVecBuilder) Build() StringVec {
 	itemCount := len(s.inner)
-	size := packNumber(Number(itemCount))
 
 	b := new(bytes.Buffer)
 
 	// Empty dyn vector, just return size's bytes
 	if itemCount == 0 {
-		b.Write(size)
+		b.Write(packNumber(Number(HeaderSizeUint)))
 		return StringVec{inner: b.Bytes()}
 	}
 
@@ -446,10 +445,10 @@ func ProtocolInfoMolFromSlice(slice []byte, compatible bool) (*ProtocolInfoMol, 
 		return nil, errors.New(errMsg)
 	}
 
-	offsets := make([]uint32, 2)
+	offsets := make([]uint32, fieldCount)
 
-	for i := 0; i < 2; i++ {
-		offsets[i] = uint32(unpackNumber(slice[HeaderSizeUint:][4*i:]))
+	for i := 0; i < int(fieldCount); i++ {
+		offsets[i] = uint32(unpackNumber(slice[HeaderSizeUint:][int(HeaderSizeUint)*i:]))
 	}
 	offsets = append(offsets, uint32(totalSize))
 
@@ -495,7 +494,7 @@ func (s *ProtocolInfoMol) CountExtraFields() uint {
 	return s.FieldCount() - 2
 }
 
-func (s *ProtocolInfoMol) hasExtraFields() bool {
+func (s *ProtocolInfoMol) HasExtraFields() bool {
 	return 2 != s.FieldCount()
 }
 
@@ -508,7 +507,7 @@ func (s *ProtocolInfoMol) Name() *String {
 func (s *ProtocolInfoMol) SupportVersions() *StringVec {
 	var ret *StringVec
 	start := unpackNumber(s.inner[8:])
-	if s.hasExtraFields() {
+	if s.HasExtraFields() {
 		end := unpackNumber(s.inner[12:])
 		ret = StringVecFromSliceUnchecked(s.inner[start:end])
 	} else {

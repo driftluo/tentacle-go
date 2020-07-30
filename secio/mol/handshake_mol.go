@@ -630,10 +630,10 @@ func ProposeFromSlice(slice []byte, compatible bool) (*Propose, error) {
 		return nil, errors.New(errMsg)
 	}
 
-	offsets := make([]uint32, 5)
+	offsets := make([]uint32, fieldCount)
 
-	for i := 0; i < 5; i++ {
-		offsets[i] = uint32(unpackNumber(slice[HeaderSizeUint:][4*i:]))
+	for i := 0; i < int(fieldCount); i++ {
+		offsets[i] = uint32(unpackNumber(slice[HeaderSizeUint:][int(HeaderSizeUint)*i:]))
 	}
 	offsets = append(offsets, uint32(totalSize))
 
@@ -694,7 +694,7 @@ func (s *Propose) CountExtraFields() uint {
 	return s.FieldCount() - 5
 }
 
-func (s *Propose) hasExtraFields() bool {
+func (s *Propose) HasExtraFields() bool {
 	return 5 != s.FieldCount()
 }
 
@@ -725,7 +725,7 @@ func (s *Propose) Ciphers() *String {
 func (s *Propose) Hashes() *String {
 	var ret *String
 	start := unpackNumber(s.inner[20:])
-	if s.hasExtraFields() {
+	if s.HasExtraFields() {
 		end := unpackNumber(s.inner[24:])
 		ret = StringFromSliceUnchecked(s.inner[start:end])
 	} else {
@@ -836,10 +836,10 @@ func ExchangeFromSlice(slice []byte, compatible bool) (*Exchange, error) {
 		return nil, errors.New(errMsg)
 	}
 
-	offsets := make([]uint32, 2)
+	offsets := make([]uint32, fieldCount)
 
-	for i := 0; i < 2; i++ {
-		offsets[i] = uint32(unpackNumber(slice[HeaderSizeUint:][4*i:]))
+	for i := 0; i < int(fieldCount); i++ {
+		offsets[i] = uint32(unpackNumber(slice[HeaderSizeUint:][int(HeaderSizeUint)*i:]))
 	}
 	offsets = append(offsets, uint32(totalSize))
 
@@ -885,7 +885,7 @@ func (s *Exchange) CountExtraFields() uint {
 	return s.FieldCount() - 2
 }
 
-func (s *Exchange) hasExtraFields() bool {
+func (s *Exchange) HasExtraFields() bool {
 	return 2 != s.FieldCount()
 }
 
@@ -898,7 +898,7 @@ func (s *Exchange) Epubkey() *Bytes {
 func (s *Exchange) Signature() *Bytes {
 	var ret *Bytes
 	start := unpackNumber(s.inner[8:])
-	if s.hasExtraFields() {
+	if s.HasExtraFields() {
 		end := unpackNumber(s.inner[12:])
 		ret = BytesFromSliceUnchecked(s.inner[start:end])
 	} else {

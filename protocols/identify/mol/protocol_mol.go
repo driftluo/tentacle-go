@@ -171,13 +171,12 @@ type AddressVecBuilder struct {
 
 func (s *AddressVecBuilder) Build() AddressVec {
 	itemCount := len(s.inner)
-	size := packNumber(Number(itemCount))
 
 	b := new(bytes.Buffer)
 
 	// Empty dyn vector, just return size's bytes
 	if itemCount == 0 {
-		b.Write(size)
+		b.Write(packNumber(Number(HeaderSizeUint)))
 		return AddressVec{inner: b.Bytes()}
 	}
 
@@ -437,10 +436,10 @@ func AddressFromSlice(slice []byte, compatible bool) (*Address, error) {
 		return nil, errors.New(errMsg)
 	}
 
-	offsets := make([]uint32, 1)
+	offsets := make([]uint32, fieldCount)
 
-	for i := 0; i < 1; i++ {
-		offsets[i] = uint32(unpackNumber(slice[HeaderSizeUint:][4*i:]))
+	for i := 0; i < int(fieldCount); i++ {
+		offsets[i] = uint32(unpackNumber(slice[HeaderSizeUint:][int(HeaderSizeUint)*i:]))
 	}
 	offsets = append(offsets, uint32(totalSize))
 
@@ -481,14 +480,14 @@ func (s *Address) CountExtraFields() uint {
 	return s.FieldCount() - 1
 }
 
-func (s *Address) hasExtraFields() bool {
+func (s *Address) HasExtraFields() bool {
 	return 1 != s.FieldCount()
 }
 
 func (s *Address) Bytes() *Bytes {
 	var ret *Bytes
 	start := unpackNumber(s.inner[4:])
-	if s.hasExtraFields() {
+	if s.HasExtraFields() {
 		end := unpackNumber(s.inner[8:])
 		ret = BytesFromSliceUnchecked(s.inner[start:end])
 	} else {
@@ -608,10 +607,10 @@ func IdentifyMessageFromSlice(slice []byte, compatible bool) (*IdentifyMessage, 
 		return nil, errors.New(errMsg)
 	}
 
-	offsets := make([]uint32, 3)
+	offsets := make([]uint32, fieldCount)
 
-	for i := 0; i < 3; i++ {
-		offsets[i] = uint32(unpackNumber(slice[HeaderSizeUint:][4*i:]))
+	for i := 0; i < int(fieldCount); i++ {
+		offsets[i] = uint32(unpackNumber(slice[HeaderSizeUint:][int(HeaderSizeUint)*i:]))
 	}
 	offsets = append(offsets, uint32(totalSize))
 
@@ -662,7 +661,7 @@ func (s *IdentifyMessage) CountExtraFields() uint {
 	return s.FieldCount() - 3
 }
 
-func (s *IdentifyMessage) hasExtraFields() bool {
+func (s *IdentifyMessage) HasExtraFields() bool {
 	return 3 != s.FieldCount()
 }
 
@@ -681,7 +680,7 @@ func (s *IdentifyMessage) ObservedAddr() *Address {
 func (s *IdentifyMessage) Identify() *Bytes {
 	var ret *Bytes
 	start := unpackNumber(s.inner[12:])
-	if s.hasExtraFields() {
+	if s.HasExtraFields() {
 		end := unpackNumber(s.inner[16:])
 		ret = BytesFromSliceUnchecked(s.inner[start:end])
 	} else {
