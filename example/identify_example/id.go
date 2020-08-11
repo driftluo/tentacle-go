@@ -28,7 +28,7 @@ type identifyCallback struct {
 	localListenAddrs []multiaddr.Multiaddr
 }
 
-func (i *identifyCallback) ReceivedIdentify(ctx *tentacle.ProtocolContextRef, data []byte) identify.MisbehaveResult {
+func (i *identifyCallback) ReceivedIdentify(ctx *tentacle.ProtocolContextRef, data []byte) *identify.MisbehaveResult {
 	log.Println(secio.Bytes2str(data))
 	return identify.Continue()
 }
@@ -43,11 +43,11 @@ func (i *identifyCallback) LocalListenAddrs() []multiaddr.Multiaddr {
 
 func (i *identifyCallback) AddRemoteListenAddrs(secio.PeerID, []multiaddr.Multiaddr) {}
 
-func (i *identifyCallback) AddObservedAddr(secio.PeerID, multiaddr.Multiaddr, tentacle.SessionType) identify.MisbehaveResult {
+func (i *identifyCallback) AddObservedAddr(secio.PeerID, multiaddr.Multiaddr, tentacle.SessionType) *identify.MisbehaveResult {
 	return identify.Continue()
 }
 
-func (i *identifyCallback) Misbehave(secio.PeerID, identify.Misbehavior) identify.MisbehaveResult {
+func (i *identifyCallback) Misbehave(secio.PeerID, identify.Misbehavior) *identify.MisbehaveResult {
 	return identify.Disconnect()
 }
 

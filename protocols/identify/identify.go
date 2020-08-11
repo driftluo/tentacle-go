@@ -59,19 +59,19 @@ func (m *MisbehaveResult) isDisconnect() bool {
 }
 
 // Continue to run
-func Continue() MisbehaveResult {
-	return MisbehaveResult{tag: 0}
+func Continue() *MisbehaveResult {
+	return &MisbehaveResult{tag: 0}
 }
 
 // Disconnect this peer
-func Disconnect() MisbehaveResult {
-	return MisbehaveResult{tag: 1}
+func Disconnect() *MisbehaveResult {
+	return &MisbehaveResult{tag: 1}
 }
 
 // CallBack to communicate with underlying peer storage
 type CallBack interface {
 	// Received custom message
-	ReceivedIdentify(*tentacle.ProtocolContextRef, []byte) MisbehaveResult
+	ReceivedIdentify(*tentacle.ProtocolContextRef, []byte) *MisbehaveResult
 	// Get custom identify message
 	Identify() []byte
 	// Get local listen addresses
@@ -79,9 +79,9 @@ type CallBack interface {
 	// Add remote peer's listen addresses
 	AddRemoteListenAddrs(secio.PeerID, []multiaddr.Multiaddr)
 	// Add our address observed by remote peer
-	AddObservedAddr(secio.PeerID, multiaddr.Multiaddr, tentacle.SessionType) MisbehaveResult
+	AddObservedAddr(secio.PeerID, multiaddr.Multiaddr, tentacle.SessionType) *MisbehaveResult
 	// Report misbehavior
-	Misbehave(secio.PeerID, Misbehavior) MisbehaveResult
+	Misbehave(secio.PeerID, Misbehavior) *MisbehaveResult
 }
 
 type remoteInfo struct {
@@ -121,28 +121,26 @@ func (p *Protocol) GlobalIPOnly(globalIPOnly bool) *Protocol {
 	return p
 }
 
-func (p *Protocol) processListens(context *tentacle.ProtocolContextRef, listens []multiaddr.Multiaddr) MisbehaveResult {
+func (p *Protocol) processListens(context *tentacle.ProtocolContextRef, listens []multiaddr.Multiaddr) *MisbehaveResult {
 	info := p.remoteInfos[context.Sid]
 
-	if info.received {
-		return p.callback.Misbehave(info.pid, Misbehavior{tag: duplicateReceived})
-	} else if len(listens) > maxAddrs {
+	if len(listens) > maxAddrs {
 		return p.callback.Misbehave(info.pid, Misbehavior{tag: tooManyAddresses})
-	} else {
-		listensNew := make([]multiaddr.Multiaddr, len(listens))
-
-		for i := 0; i < len(listens); i++ {
-			if !p.globalIPOnly || manet.IsPublicAddr(listens[i]) {
-				listensNew[i] = listens[i]
-			}
-		}
-		p.callback.AddRemoteListenAddrs(info.pid, listensNew)
-		info.received = true
-		return Continue()
 	}
+
+	listensNew := make([]multiaddr.Multiaddr, len(listens))
+
+	for i := 0; i < len(listens); i++ {
+		if !p.globalIPOnly || manet.IsPublicAddr(listens[i]) {
+			listensNew[i] = listens[i]
+		}
+	}
+	p.callback.AddRemoteListenAddrs(info.pid, listensNew)
+	return Continue()
+
 }
 
-func (p *Protocol) processObserved(context *tentacle.ProtocolContextRef, observed multiaddr.Multiaddr) MisbehaveResult {
+func (p *Protocol) processObserved(context *tentacle.ProtocolContextRef, observed multiaddr.Multiaddr) *MisbehaveResult {
 	info := p.remoteInfos[context.Sid]
 
 	if !p.globalIPOnly || manet.IsPublicAddr(observed) {
@@ -150,6 +148,15 @@ func (p *Protocol) processObserved(context *tentacle.ProtocolContextRef, observe
 		if res.isDisconnect() {
 			return Disconnect()
 		}
+	}
+	return Continue()
+}
+
+func (p *Protocol) checkDuplicate(context *tentacle.ProtocolContextRef) *MisbehaveResult {
+	info := p.remoteInfos[context.Sid]
+
+	if info.received {
+		return p.callback.Misbehave(info.pid, Misbehavior{tag: duplicateReceived})
 	}
 	info.received = true
 	return Continue()
@@ -208,11 +215,7 @@ func (p *Protocol) Received(ctx *tentacle.ProtocolContextRef, data []byte) {
 			ctx.Disconnect(ctx.Sid)
 		}
 	} else {
-		idenifyRes := p.callback.ReceivedIdentify(ctx, msg.identify)
-		listenRes := p.processListens(ctx, msg.listenAddrs)
-		observedRes := p.processObserved(ctx, msg.observedAddr)
-
-		if idenifyRes.isDisconnect() || listenRes.isDisconnect() || observedRes.isDisconnect() {
+		if p.checkDuplicate(ctx).isDisconnect() || p.callback.ReceivedIdentify(ctx, msg.identify).isDisconnect() || p.processListens(ctx, msg.listenAddrs).isDisconnect() || p.processObserved(ctx, msg.observedAddr).isDisconnect() {
 			ctx.Disconnect(ctx.Sid)
 		}
 	}

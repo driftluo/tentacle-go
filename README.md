@@ -12,7 +12,7 @@ At present, example can communicate normally with the [Rust](https://github.com/
 ### Example
 
 ```bash
-$ go build example/simple.go
+$ go build example/tentacle_example/simple.go
 $ ./simple server
 ```
 
@@ -34,7 +34,7 @@ $ RUST_LOG=simple=info,tentacle=debug cargo run --example simple --features molc
 On another terminal:
 
 ```bash
-$ go build example/simple.go
+$ go build example/tentacle_example/simple.go
 $ ./simple
 ```
 
