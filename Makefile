@@ -7,6 +7,7 @@ MOL_FILES := \
   mol/protocol_select.mol \
   secio/mol/handshake.mol \
   protocols/identify/mol/protocol.mol \
+  protocols/ping/mol/protocol.mol \
 
 MOL_GO_FILES := $(patsubst %.mol,%_mol.go,${MOL_FILES})
 
