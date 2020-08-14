@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/driftluo/tentacle-go"
-	"github.com/driftluo/tentacle-go/secio"
 )
 
 const sendPingToken = 0
@@ -12,16 +11,15 @@ const checkTimeoutToken = 1
 
 // CallBack to communicate with underlying peer storage
 type CallBack interface {
-	ReceivedPing(*tentacle.ProtocolContextRef, secio.PeerID)
-	ReceivedPong(*tentacle.ProtocolContextRef, secio.PeerID, time.Duration)
-	Timeout(*tentacle.ProtocolContext, secio.PeerID)
-	UnexpectedError(*tentacle.ProtocolContextRef, secio.PeerID)
+	ReceivedPing(*tentacle.ProtocolContextRef)
+	ReceivedPong(*tentacle.ProtocolContextRef, time.Duration)
+	Timeout(*tentacle.ProtocolContext, tentacle.SessionID)
+	UnexpectedError(*tentacle.ProtocolContextRef)
 }
 
 type pingStatus struct {
 	processing bool
 	lastPing   time.Time
-	peerid     secio.PeerID
 }
 
 // A meaningless value, peer must send a pong has same nonce to respond a ping.
@@ -66,9 +64,7 @@ func (p *Protocol) Connected(ctx *tentacle.ProtocolContextRef, version string) {
 		return
 	}
 
-	peerid := ctx.Key.PeerID()
-
-	p.connectedSession[ctx.Sid] = &pingStatus{processing: false, peerid: peerid, lastPing: time.Now()}
+	p.connectedSession[ctx.Sid] = &pingStatus{processing: false, lastPing: time.Now()}
 }
 
 // Disconnected ..
@@ -83,20 +79,20 @@ func (p *Protocol) Received(ctx *tentacle.ProtocolContextRef, data []byte) {
 	pingPayload, err := decodeToPingPayLoad(data)
 
 	if err != nil {
-		p.callback.UnexpectedError(ctx, status.peerid)
+		p.callback.UnexpectedError(ctx)
 		return
 	}
 
 	switch pingPayload.tag {
 	case ping:
 		ctx.SendMessage(buildPong(pingPayload.nonce))
-		p.callback.ReceivedPing(ctx, status.peerid)
+		p.callback.ReceivedPing(ctx)
 	case pong:
 		if status.processing && status.nonce() == pingPayload.nonce {
 			status.processing = false
-			p.callback.ReceivedPong(ctx, status.peerid, status.elapsed())
+			p.callback.ReceivedPong(ctx, status.elapsed())
 		} else {
-			p.callback.UnexpectedError(ctx, status.peerid)
+			p.callback.UnexpectedError(ctx)
 		}
 	}
 }
@@ -121,9 +117,9 @@ func (p *Protocol) Notify(ctx *tentacle.ProtocolContext, token uint64) {
 		}
 
 	case checkTimeoutToken:
-		for _, status := range p.connectedSession {
+		for id, status := range p.connectedSession {
 			if status.processing && status.elapsed() >= p.timeout {
-				p.callback.Timeout(ctx, status.peerid)
+				p.callback.Timeout(ctx, id)
 			}
 		}
 	}

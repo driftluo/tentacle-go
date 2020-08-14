@@ -26,20 +26,20 @@ func main() {
 
 type pingCallback struct{}
 
-func (p *pingCallback) ReceivedPing(ctx *tentacle.ProtocolContextRef, id secio.PeerID) {
-	log.Println("received ping from: ", id.Bese58String())
+func (p *pingCallback) ReceivedPing(ctx *tentacle.ProtocolContextRef) {
+	log.Println("received ping from: ", ctx.Key.PeerID().Bese58String())
 }
 
-func (p *pingCallback) ReceivedPong(ctx *tentacle.ProtocolContextRef, id secio.PeerID, t time.Duration) {
-	log.Println("received pong from: ", id.Bese58String(), t)
+func (p *pingCallback) ReceivedPong(ctx *tentacle.ProtocolContextRef, t time.Duration) {
+	log.Println("received pong from: ", ctx.Key.PeerID().Bese58String(), t)
 }
 
-func (p *pingCallback) Timeout(ctx *tentacle.ProtocolContext, id secio.PeerID) {
-	log.Println("peer timeout: ", id.Bese58String())
+func (p *pingCallback) Timeout(ctx *tentacle.ProtocolContext, id tentacle.SessionID) {
+	log.Println("peer timeout: ", ctx.Key.PeerID().Bese58String())
 }
 
-func (p *pingCallback) UnexpectedError(ctx *tentacle.ProtocolContextRef, id secio.PeerID) {
-	log.Println("unexpected error: ", id.Bese58String())
+func (p *pingCallback) UnexpectedError(ctx *tentacle.ProtocolContextRef) {
+	log.Println("unexpected error: ", ctx.Key.PeerID().Bese58String())
 }
 
 type simpleHandler struct{}
