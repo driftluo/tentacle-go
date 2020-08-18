@@ -1,13 +1,14 @@
 MOLC    := moleculec
 MOLC_VERSION := 0.6.0
 MOLC_GO := moleculec-go
-MOLC_GO_VERSION := 0.1.4
+MOLC_GO_VERSION := 0.1.5
 
 MOL_FILES := \
   mol/protocol_select.mol \
   secio/mol/handshake.mol \
   protocols/identify/mol/protocol.mol \
   protocols/ping/mol/protocol.mol \
+  protocols/discovery/mol/protocol.mol \
 
 MOL_GO_FILES := $(patsubst %.mol,%_mol.go,${MOL_FILES})
 

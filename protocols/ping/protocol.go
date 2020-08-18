@@ -57,7 +57,7 @@ func decodeToPingPayLoad(data []byte) (*pingPayload, error) {
 }
 
 func uint32ToBytes(i uint32) []byte {
-	buf := make([]byte, 8)
+	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, i)
 	return buf
 }
