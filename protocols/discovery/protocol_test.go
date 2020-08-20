@@ -111,3 +111,57 @@ func TestDiscoveryMessageDecodeEncodeOnNodes(t *testing.T) {
 		t.Fatal("d2 addresses must eq")
 	}
 }
+
+func TestCodecDecodeEncode(t *testing.T) {
+	a := newCodec()
+
+	ginner := getNodes{version: 0, count: 1000, listenPort: 1024}
+	ginfo := discoveryMessage{tag: getNode, inner: ginner}
+
+	b := a.encode(ginfo)
+
+	decode, err := a.decode(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d, ok := decode.inner.(getNodes)
+	if !ok {
+		t.Fatal("ninfo decode fail on type assert")
+	}
+
+	if d.version != ginner.version {
+		t.Fatal("d version != g version")
+	}
+	if d.count != ginner.count {
+		t.Fatal("d count != g count")
+	}
+	if d.listenPort != ginner.listenPort {
+		t.Fatal("d listenPort != g listenPort")
+	}
+
+	ginner2 := getNodes{version: 0, count: 1000, listenPort: 1025}
+	ginfo2 := discoveryMessage{tag: getNode, inner: ginner2}
+
+	b2 := a.encode(ginfo2)
+
+	decode2, err := a.decode(b2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d2, ok := decode2.inner.(getNodes)
+	if !ok {
+		t.Fatal("ninfo decode fail on type assert")
+	}
+
+	if d2.version != ginner2.version {
+		t.Fatal("d2 version != g2 version")
+	}
+	if d2.count != ginner2.count {
+		t.Fatal("d2 count != g2 count")
+	}
+	if d2.listenPort != ginner2.listenPort {
+		t.Fatal("d2 listenPort != g2 listenPort")
+	}
+}

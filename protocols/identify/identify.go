@@ -40,7 +40,7 @@ func (m *Misbehavior) String() string {
 	case invalidData:
 		name = "InvalidData"
 	case tooManyAddresses:
-		name = "tooManyAddresses"
+		name = "TooManyAddresses"
 	}
 	return name
 }

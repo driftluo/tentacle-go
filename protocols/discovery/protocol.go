@@ -1,10 +1,12 @@
 package discovery
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 
 	mol "github.com/driftluo/tentacle-go/protocols/discovery/mol"
+	"github.com/libp2p/go-msgio"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -182,4 +184,47 @@ func intoByteslice(b []byte) []mol.Byte {
 		tmp[i] = mol.NewByte(v)
 	}
 	return tmp
+}
+
+// Due to historical reasons, lengthcodec must be used again for parsing
+type codec struct {
+	read    *bytes.Buffer
+	write   *bytes.Buffer
+	ioCodec msgio.ReadWriter
+}
+
+func newCodec() *codec {
+	read := new(bytes.Buffer)
+	write := new(bytes.Buffer)
+
+	r := msgio.NewReader(read)
+	w := msgio.NewWriter(write)
+	ioCodec := msgio.Combine(w, r)
+
+	return &codec{read: read, write: write, ioCodec: ioCodec}
+}
+
+func (c *codec) decode(data []byte) (*discoveryMessage, error) {
+	c.read.Write(data)
+	b, err := c.ioCodec.ReadMsg()
+	if err != nil {
+		return nil, err
+	}
+	// cleanup buf
+	c.read.Reset()
+
+	msg, err := decodeToDiscoveryMessage(b)
+	if err != nil {
+		return nil, err
+	}
+	return msg, nil
+}
+
+func (c *codec) encode(data discoveryMessage) []byte {
+	// no error here, because it is a bytes.Buffer
+	c.ioCodec.WriteMsg(data.encode())
+	buf := c.write.Bytes()
+	// cleanup buf
+	c.write.Reset()
+	return buf
 }
