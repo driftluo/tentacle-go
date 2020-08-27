@@ -8,6 +8,7 @@ import (
 
 	"github.com/driftluo/tentacle-go"
 	"github.com/multiformats/go-multiaddr"
+	cuckoo "github.com/seiflotfy/cuckoofilter"
 )
 
 const (
@@ -84,34 +85,23 @@ func (r *remoteAddress) updatePort(port uint16) {
 }
 
 type addrKnown struct {
-	maxLen    int
-	addrs     map[multiaddr.Multiaddr]bool
-	addrsList []multiaddr.Multiaddr
+	filter *cuckoo.Filter
 }
 
 func newAddrKnown() addrKnown {
-	return addrKnown{maxLen: defaultMaxKnown, addrs: map[multiaddr.Multiaddr]bool{}, addrsList: []multiaddr.Multiaddr{}}
+	return addrKnown{filter: cuckoo.NewFilter(defaultMaxKnown)}
 }
 
 func (k *addrKnown) insert(addr multiaddr.Multiaddr) {
-	k.addrs[addr] = true
-	k.addrsList = append(k.addrsList, addr)
-
-	if len(k.addrs) > k.maxLen {
-		key := k.addrsList[0]
-		delete(k.addrs, key)
-		k.addrsList = k.addrsList[1:]
-	}
+	k.filter.InsertUnique(addr.Bytes())
 }
 
 func (k *addrKnown) contain(addr multiaddr.Multiaddr) bool {
-	_, ok := k.addrs[addr]
-	return ok
+	return k.filter.Lookup(addr.Bytes())
 }
 
 func (k *addrKnown) remove(addr multiaddr.Multiaddr) {
-	delete(k.addrs, addr)
-	k.addrsList = deleteSlice(k.addrsList, addr)
+	k.filter.Delete(addr.Bytes())
 }
 
 func deleteSlice(source []multiaddr.Multiaddr, item multiaddr.Multiaddr) []multiaddr.Multiaddr {

@@ -45,3 +45,34 @@ func TestGetPort(t *testing.T) {
 		t.Fatal("get m1 port fail")
 	}
 }
+
+func TestAddrKnown(t *testing.T) {
+	m1, _ := multiaddr.NewMultiaddr("/ip4/127.0.0.1/tcp/1336/")
+	m2, _ := multiaddr.NewMultiaddr("/ip4/127.0.0.1/tcp/1337/")
+
+	k := newAddrKnown()
+
+	k.insert(m1)
+
+	if !k.contain(m1) {
+		t.Fatal("must contain m1")
+	}
+
+	k.insert(m2)
+
+	if !k.contain(m2) {
+		t.Fatal("must contain m2")
+	}
+
+	k.remove(m1)
+
+	if k.contain(m1) {
+		t.Fatal("must don't contain m1")
+	}
+
+	k.remove(m2)
+
+	if k.contain(m2) {
+		t.Fatal("must don't contain m2")
+	}
+}
