@@ -130,13 +130,18 @@ func (p *Protocol) Received(ctx *tentacle.ProtocolContextRef, data []byte) {
 
 	state := p.sessions[ctx.Sid]
 
+	check := func(behavior Misbehavior) bool {
+		if p.addrMgr.Misbehave(ctx.Sid, behavior).isDisconnect() {
+			ctx.Disconnect(ctx.Sid)
+			return true
+		}
+		return false
+	}
+
 	switch msg.tag {
 	case getNode:
-		if state.receivedGetNodes {
-			if p.addrMgr.Misbehave(ctx.Sid, Misbehavior{tag: duplicateGetNodes}).isDisconnect() {
-				ctx.Disconnect(ctx.Sid)
-				return
-			}
+		if state.receivedGetNodes && check(Misbehavior{tag: duplicateGetNodes}) {
+			return
 		}
 		state.receivedGetNodes = true
 
@@ -153,10 +158,18 @@ func (p *Protocol) Received(ctx *tentacle.ProtocolContextRef, data []byte) {
 			p.addrMgr.AddNewAddr(ctx.Sid, state.remoteAddr.addr)
 		}
 
-		for len(items) > 1000 {
+		var max int
+
+		if maxAddrToSend > inner.count {
+			max = int(inner.count)
+		} else {
+			max = int(maxAddrToSend)
+		}
+
+		for len(items) > max {
 			lastItem := items[len(items)-1]
 			items = deleteSlice(items, lastItem)
-			idx := rand.Int() % 1000
+			idx := rand.Int() % max
 			items[idx] = lastItem
 		}
 		addrses := make([]node, len(items))
@@ -170,12 +183,11 @@ func (p *Protocol) Received(ctx *tentacle.ProtocolContextRef, data []byte) {
 	case sendNodes:
 		inner := msg.inner.(nodes)
 
-		for _, item := range inner.items {
-			if len(item.addresses) > maxAddrs {
-				if p.addrMgr.Misbehave(ctx.Sid, Misbehavior{tag: tooManyAddresses}).isDisconnect() {
-					ctx.Disconnect(ctx.Sid)
-					return
-				}
+		behavior := verifyNodesMsg(inner)
+
+		if behavior != nil {
+			if check(*behavior) {
+				return
 			}
 		}
 
@@ -190,33 +202,14 @@ func (p *Protocol) Received(ctx *tentacle.ProtocolContextRef, data []byte) {
 			}
 		}
 
-		if inner.announce {
-			if len(inner.items) > announceThershold {
-				if p.addrMgr.Misbehave(ctx.Sid, Misbehavior{tag: tooManyItems}).isDisconnect() {
-					ctx.Disconnect(ctx.Sid)
-					return
-				}
+		if !inner.announce && state.receivedGetNodes {
+			if check(*behavior) {
+				return
 			}
+		} else {
 			insertFn(inner)
-			return
+			state.receivedNodes = true
 		}
-
-		if len(inner.items) > maxAddrToSend {
-			if p.addrMgr.Misbehave(ctx.Sid, Misbehavior{tag: tooManyItems}).isDisconnect() {
-				ctx.Disconnect(ctx.Sid)
-				return
-			}
-		}
-
-		if state.receivedGetNodes {
-			if p.addrMgr.Misbehave(ctx.Sid, Misbehavior{tag: duplicateFirstNodes}).isDisconnect() {
-				ctx.Disconnect(ctx.Sid)
-				return
-			}
-		}
-
-		state.receivedNodes = true
-		insertFn(inner)
 	}
 }
 
@@ -232,18 +225,11 @@ func (p *Protocol) Notify(ctx *tentacle.ProtocolContext, token uint64) {
 		// send all announce addr to remote
 		state.sendMessage(ctx, id, p.codec)
 		// check timer
-		state.checkTimer(now, p.queryCycle)
+		addr := state.checkTimer(now, p.queryCycle)
 		ids = append(ids, id)
 
-		if state.announce {
-			if state.remoteAddr.tag == listen {
-				if !p.globalIPOnly || manet.IsPublicAddr(state.remoteAddr.addr) {
-					announceList = append(announceList, state.remoteAddr.addr)
-				}
-			}
-
-			state.announce = false
-			state.lastAnnounce = now
+		if addr != nil && (!p.globalIPOnly || manet.IsPublicAddr(addr)) {
+			announceList = append(announceList, addr)
 		}
 	}
 
@@ -259,10 +245,33 @@ func (p *Protocol) Notify(ctx *tentacle.ProtocolContext, token uint64) {
 			}
 			key := ids[i]
 			state := p.sessions[key]
-			if len(state.announceMultiaddrs) < 10 && !state.addrKnown.contain(addr) {
+			if len(state.announceMultiaddrs) < announceThershold && !state.addrKnown.contain(addr) {
 				state.announceMultiaddrs = append(state.announceMultiaddrs, addr)
 				state.addrKnown.insert(addr)
 			}
 		}
 	}
+}
+
+func verifyNodesMsg(d nodes) *Misbehavior {
+	var misbehavior *Misbehavior
+	if d.announce {
+		if len(d.items) > announceThershold {
+			misbehavior = &Misbehavior{tag: tooManyItems}
+		}
+	} else {
+		if len(d.items) > maxAddrToSend {
+			misbehavior = &Misbehavior{tag: tooManyItems}
+		}
+	}
+
+	if misbehavior == nil {
+		for _, item := range d.items {
+			if len(item.addresses) > maxAddrs {
+				misbehavior = &Misbehavior{tag: tooManyAddresses}
+			}
+		}
+	}
+
+	return misbehavior
 }

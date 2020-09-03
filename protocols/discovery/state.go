@@ -19,7 +19,6 @@ const (
 type discoveryState struct {
 	addrKnown          addrKnown
 	remoteAddr         remoteAddress
-	announce           bool
 	lastAnnounce       time.Time
 	announceMultiaddrs []multiaddr.Multiaddr
 	receivedGetNodes   bool
@@ -50,14 +49,18 @@ func newState(ctx *tentacle.ProtocolContextRef, codec *codec) *discoveryState {
 		remoteAddrinner = remoteAddress{tag: initState, addr: ctx.RemoteAddr}
 	}
 
-	return &discoveryState{addrKnown: addrKnown, remoteAddr: remoteAddrinner, announce: false, lastAnnounce: time.Now(), announceMultiaddrs: []multiaddr.Multiaddr{}, receivedGetNodes: false, receivedNodes: false}
+	return &discoveryState{addrKnown: addrKnown, remoteAddr: remoteAddrinner, lastAnnounce: time.Now(), announceMultiaddrs: []multiaddr.Multiaddr{}, receivedGetNodes: false, receivedNodes: false}
 }
 
-func (d *discoveryState) checkTimer(now time.Time, announceInterval time.Duration) {
+func (d *discoveryState) checkTimer(now time.Time, announceInterval time.Duration) multiaddr.Multiaddr {
 	duration := now.Sub(d.lastAnnounce)
 	if duration > announceInterval {
-		d.announce = true
+		d.lastAnnounce = now
+		if d.remoteAddr.tag == listen {
+			return d.remoteAddr.addr
+		}
 	}
+	return nil
 }
 
 func (d *discoveryState) sendMessage(ctx *tentacle.ProtocolContext, id tentacle.SessionID, codec *codec) {
