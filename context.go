@@ -7,7 +7,6 @@ import (
 
 	"github.com/driftluo/tentacle-go/secio"
 	ma "github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr-net"
 )
 
 // ErrBrokenPipe service has been shutdown
@@ -195,6 +194,7 @@ type Service struct {
 	state  *serviceState
 	key    secio.PrivKey
 	closed *atomic.Value
+	config *serviceConfig
 
 	quickTaskSender chan<- serviceTask
 	taskSender      chan<- serviceTask
@@ -230,7 +230,7 @@ func (s *Service) Listen(addr ma.Multiaddr) (ma.Multiaddr, error) {
 	if !isSupport(addr) {
 		return nil, ErrNotSupport
 	}
-	listener, err := manet.Listen(addr)
+	listener, err := multiListen(addr, s.config.timeout)
 	if err != nil {
 		return nil, err
 	}

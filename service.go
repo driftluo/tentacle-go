@@ -70,7 +70,7 @@ func (s *serviceListener) run() {
 	}
 }
 
-func handshake(conn net.Conn, ty SessionType, remoteAddr ma.Multiaddr, selfKey secio.PrivKey, timeout time.Duration, listenAddr ma.Multiaddr, report chan<- sessionEvent) {
+func handshake(conn manet.Conn, ty SessionType, remoteAddr ma.Multiaddr, selfKey secio.PrivKey, timeout time.Duration, listenAddr ma.Multiaddr, report chan<- sessionEvent) {
 	// secio or not
 	if selfKey != nil {
 		resChan := make(chan sessionEvent)
@@ -706,31 +706,15 @@ func (s *service) dial(addr ma.Multiaddr, target TargetProtocol) {
 	}
 
 	s.dialProtocols[addr] = target
-	resChan := make(chan interface{})
 	go func() {
-		go func() {
-			conn, err := manet.Dial(addr)
-			if err != nil {
-				resChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
-			}
-			resChan <- nil
-			go handshake(conn, SessionType(0), addr, s.serviceContext.Key, s.config.timeout, nil, s.sessionEventChan)
-		}()
-
-		select {
-		case <-time.After(s.config.timeout):
-			protectRun(
-				func() {
-					s.sessionEventChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: ErrDialTimeout}}
-				},
-				nil,
-			)
-		case inner := <-resChan:
-			event, ok := inner.(sessionEvent)
-			if ok {
-				protectRun(func() { s.sessionEventChan <- event }, nil)
-			}
+		conn, err := multiDial(addr, s.config.timeout)
+		if err != nil {
+			protectRun(func() {
+				s.sessionEventChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
+			}, nil)
+			return
 		}
+		go handshake(conn, SessionType(0), addr, s.serviceContext.Key, s.config.timeout, nil, s.sessionEventChan)
 	}()
 }
 
@@ -739,26 +723,18 @@ func (s *service) listen(addr ma.Multiaddr) {
 		s.sessionEventChan <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: TransportError, Addr: addr, Inner: ErrNotSupport}}
 		return
 	}
-	resChan := make(chan sessionEvent)
-	go func() {
-		listener, err := manet.Listen(addr)
-		if err != nil {
-			resChan <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
-		}
-		resChan <- sessionEvent{tag: listenStart, event: listenStartInner{listener: listener}}
-	}()
 
-	select {
-	case <-time.After(s.config.timeout):
-		protectRun(
-			func() {
-				s.sessionEventChan <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: TransportError, Addr: addr, Inner: ErrListenerTimeout}}
-			},
-			nil,
-		)
-	case event := <-resChan:
-		protectRun(func() { s.sessionEventChan <- event }, nil)
+	listener, err := multiListen(addr, s.config.timeout)
+
+	if err != nil {
+		protectRun(func() {
+			s.sessionEventChan <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
+		}, nil)
+		return
 	}
+	protectRun(func() {
+		s.sessionEventChan <- sessionEvent{tag: listenStart, event: listenStartInner{listener: listener}}
+	}, nil)
 }
 
 func (s *service) listenerstart(inner listenStartInner) {
@@ -784,6 +760,7 @@ func (s *service) control() *Service {
 		state:  s.state,
 		key:    s.serviceContext.Key,
 		closed: &s.shutdown,
+		config: &s.config,
 
 		quickTaskSender: s.serviceContext.quickTaskSender,
 		taskSender:      s.serviceContext.taskSender,
