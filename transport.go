@@ -17,7 +17,7 @@ func multiListen(addr multiaddr.Multiaddr, timeout time.Duration) (manet.Listene
 	case tcp:
 		return newTCPTransport(timeout).listen(addr)
 	case ws:
-		return nil, ErrNotSupport
+		return newWSTransport(timeout).listen(addr)
 	default:
 		return nil, ErrNotSupport
 	}
@@ -28,7 +28,7 @@ func multiDial(addr multiaddr.Multiaddr, timeout time.Duration) (manet.Conn, err
 	case tcp:
 		return newTCPTransport(timeout).dial(addr)
 	case ws:
-		return nil, ErrNotSupport
+		return newWSTransport(timeout).dial(addr)
 	default:
 		return nil, ErrNotSupport
 	}

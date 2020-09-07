@@ -37,7 +37,7 @@ func isSupport(addr ma.Multiaddr) bool {
 	}
 	for _, p := range ps {
 		switch p.Name {
-		case "tcp", "ip", "ip6", "ip4", "dns", "dns4", "dns6", "p2p":
+		case "tcp", "ip", "ip6", "ip4", "dns", "dns4", "dns6", "p2p", "ws":
 			continue
 		default:
 			return false

@@ -57,6 +57,7 @@ func TestSupport(t *testing.T) {
 	m1, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1336/")
 	m2, _ := ma.NewMultiaddr("/ip4/127.0.0.1/udp/1336/")
 	m3, _ := ma.NewMultiaddr("/dns/www.baidu.com/tcp/1336/")
+	m4, _ := ma.NewMultiaddr("/dns/www.baidu.com/tcp/1336/ws")
 
 	if !isSupport(m1) {
 		t.Fatal("m1 fail")
@@ -65,6 +66,9 @@ func TestSupport(t *testing.T) {
 		t.Fatal("m2 fail")
 	}
 	if !isSupport(m3) {
+		t.Fatal("m3 fail")
+	}
+	if !isSupport(m4) {
 		t.Fatal("m3 fail")
 	}
 }
