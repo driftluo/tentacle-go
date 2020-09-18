@@ -208,7 +208,13 @@ func (p *Protocol) Received(ctx *tentacle.ProtocolContextRef, data []byte) {
 			}
 		} else {
 			insertFn(inner)
-			state.receivedNodes = true
+			// Non-announce nodes can only receive once
+			// Due to the uncertainty of the other party’s state,
+			// the announce node may be sent out first, and it must be
+			// determined to be Non-announce before the state can be changed
+			if !inner.announce {
+				state.receivedNodes = true
+			}
 		}
 	}
 }
