@@ -1,6 +1,7 @@
 package secio
 
 import (
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/elliptic"
@@ -10,6 +11,7 @@ import (
 	"hash"
 	"math"
 
+	"github.com/aead/ecdh"
 	sha256 "github.com/minio/sha256-simd"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -149,39 +151,42 @@ type GenSharedKey func([]byte) ([]byte, error)
 // GenerateEphemeralKeyPair returns an ephemeral public key and returns a function that will compute
 // the shared secret key.
 func GenerateEphemeralKeyPair(curveName string) ([]byte, GenSharedKey, error) {
-	var curve elliptic.Curve
+	var curve ecdh.KeyExchange
 
 	switch curveName {
 	case "P-256":
-		curve = elliptic.P256()
+		curve = ecdh.Generic(elliptic.P256())
 	case "P-384":
-		curve = elliptic.P384()
+		curve = ecdh.Generic(elliptic.P384())
+	case "X25519":
+		curve = ecdh.X25519()
 	default:
 		return nil, nil, fmt.Errorf("unknown curve name")
 	}
 
-	priv, x, y, err := elliptic.GenerateKey(curve, rand.Reader)
+	priv, pub, err := curve.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	pubKey := elliptic.Marshal(curve, x, y)
+	pubKey := pubkeyToBytes(pub, curveName)
 
 	done := func(theirPub []byte) ([]byte, error) {
 		// Verify and unpack node's public key.
-		x, y := elliptic.Unmarshal(curve, theirPub)
-		if x == nil {
-			return nil, fmt.Errorf("malformed public key: %d %v", len(theirPub), theirPub)
+		pubkey, err := bytesToPubkey(theirPub, curveName)
+		if err != nil {
+			return nil, err
 		}
 
-		if !curve.IsOnCurve(x, y) {
-			return nil, errors.New("invalid public key")
+		err = curve.Check(pubkey)
+		if err != nil {
+			return nil, err
 		}
 
 		// Generate shared secret.
-		secret, _ := curve.ScalarMult(x, y, priv)
+		secret := curve.ComputeSecret(priv, pubkey)
 
-		return secret.Bytes(), nil
+		return secret, nil
 	}
 
 	return pubKey, done, nil
@@ -189,4 +194,53 @@ func GenerateEphemeralKeyPair(curveName string) ([]byte, GenSharedKey, error) {
 
 func hashSha256(data []byte) [32]byte {
 	return sha256.Sum256(data)
+}
+
+func pubkeyToBytes(pubkey interface{}, ty string) []byte {
+	var b []byte
+	switch ty {
+	case "P-256":
+		// The internal implementation of the ecdh, here we need to get bytes
+		key := pubkey.(ecdh.Point)
+		b = elliptic.Marshal(elliptic.P256(), key.X, key.Y)
+
+	case "P-384":
+		// The internal implementation of the ecdh, here we need to get bytes
+		key := pubkey.(ecdh.Point)
+		b = elliptic.Marshal(elliptic.P384(), key.X, key.Y)
+
+	case "X25519":
+		// The internal implementation of the ecdh, here we need to get bytes
+		key := pubkey.([32]byte)
+		b = []byte(key[:])
+	}
+	return b
+}
+
+func bytesToPubkey(pubkey []byte, ty string) (crypto.PublicKey, error) {
+	var b crypto.PublicKey
+	switch ty {
+	case "P-256":
+		// The internal implementation of the ecdh, here we need to get bytes
+		x, y := elliptic.Unmarshal(elliptic.P256(), pubkey)
+		if x == nil {
+			return nil, fmt.Errorf("malformed public key: %d %v", len(pubkey), pubkey)
+		}
+		b = ecdh.Point{X: x, Y: y}
+
+	case "P-384":
+		// The internal implementation of the ecdh, here we need to get bytes
+		x, y := elliptic.Unmarshal(elliptic.P384(), pubkey)
+		if x == nil {
+			return nil, fmt.Errorf("malformed public key: %d %v", len(pubkey), pubkey)
+		}
+		b = ecdh.Point{X: x, Y: y}
+
+	case "X25519":
+		// The internal implementation of the ecdh, here we need to get bytes
+		var k [32]byte
+		copy(k[:], pubkey)
+		b = k
+	}
+	return b, nil
 }

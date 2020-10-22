@@ -4,11 +4,14 @@ import (
 	"strings"
 )
 
-// ECDHP256 is key agreement algorithm
+// ECDHP256 is ECDH algorithm
 const ECDHP256 = "P-256"
 
-// ECDHP384 is key agreement algorithm
+// ECDHP384 is ECDH algorithm
 const ECDHP384 = "P-384"
+
+// X25519 is ECDH algorithm
+const X25519 = "X25519"
 
 // AES128GCM is aead encryption algorithm
 const AES128GCM = "AES-128-GCM"
@@ -25,8 +28,8 @@ const SHA256 = "SHA256"
 // SHA512 is hash algorithm
 const SHA512 = "SHA512"
 
-// DefaultAgreementsProposition is the default key agreement algorithm
-const DefaultAgreementsProposition = "P-256,P-384"
+// DefaultAgreementsProposition is the default ECDH algorithm
+const DefaultAgreementsProposition = "P-256,P-384,X25519"
 
 // DefaultCiphersProposition is the default aead encryption algorithm
 const DefaultCiphersProposition = "AES-128-GCM,AES-256-GCM,CHACHA20_POLY1305"
@@ -61,7 +64,7 @@ func checkAgreements(s string) bool {
 
 	for _, sss := range ss {
 		switch sss {
-		case ECDHP256, ECDHP384:
+		case ECDHP256, ECDHP384, X25519:
 			continue
 		default:
 			return false
