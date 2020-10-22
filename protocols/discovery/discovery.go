@@ -6,7 +6,7 @@ import (
 
 	"github.com/driftluo/tentacle-go"
 	"github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr-net"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 const defaultMaxKnown = 5000

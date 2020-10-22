@@ -9,16 +9,18 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	reuseport "github.com/libp2p/go-reuseport"
 	"github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr-net"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 type wsTransport struct {
 	timeout time.Duration
+	bind    *string
 }
 
-func newWSTransport(timeout time.Duration) *wsTransport {
-	return &wsTransport{timeout: timeout}
+func newWSTransport(timeout time.Duration, bind *string) *wsTransport {
+	return &wsTransport{timeout: timeout, bind: bind}
 }
 
 func (m *wsTransport) listen(addr multiaddr.Multiaddr) (manet.Listener, error) {
@@ -27,9 +29,19 @@ func (m *wsTransport) listen(addr multiaddr.Multiaddr) (manet.Listener, error) {
 		return nil, err
 	}
 
-	listener, err := net.Listen(netTy, host)
-	if err != nil {
-		return nil, err
+	var listener net.Listener
+	var erro error
+
+	if m.bind != nil {
+		listener, erro = reuseport.Listen(netTy, host)
+		if erro != nil {
+			return nil, erro
+		}
+	} else {
+		listener, erro = net.Listen(netTy, host)
+		if erro != nil {
+			return nil, erro
+		}
 	}
 
 	wsl, err := newWsListener(listener)
@@ -51,7 +63,20 @@ func (m *wsTransport) dial(addr multiaddr.Multiaddr) (manet.Conn, error) {
 	resChan := make(chan interface{})
 
 	go func() {
-		conn, _, err := websocket.DefaultDialer.Dial("ws://"+host, nil)
+		var defaultDialer *websocket.Dialer
+		if m.bind != nil {
+			defaultDialer = &websocket.Dialer{
+				Proxy:            http.ProxyFromEnvironment,
+				HandshakeTimeout: 45 * time.Second,
+				NetDial: func(network, addr string) (net.Conn, error) {
+					return reuseport.Dial(network, *m.bind, addr)
+				},
+			}
+		} else {
+			defaultDialer = websocket.DefaultDialer
+		}
+
+		conn, _, err := defaultDialer.Dial("ws://"+host, nil)
 		if err != nil {
 			resChan <- err
 		}

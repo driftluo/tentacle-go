@@ -11,7 +11,7 @@ import (
 	"github.com/driftluo/tentacle-go/secio"
 	"github.com/hashicorp/yamux"
 	ma "github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr-net"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 // ErrHandshakeTimeout secio handshake timeout
@@ -707,7 +707,7 @@ func (s *service) dial(addr ma.Multiaddr, target TargetProtocol) {
 
 	s.dialProtocols[addr] = target
 	go func() {
-		conn, err := multiDial(addr, s.config.timeout)
+		conn, err := multiDial(addr, s.config)
 		if err != nil {
 			protectRun(func() {
 				s.sessionEventChan <- sessionEvent{tag: dialError, event: DialerErrorInner{Tag: TransportError, Addr: addr, Inner: err}}
@@ -724,7 +724,7 @@ func (s *service) listen(addr ma.Multiaddr) {
 		return
 	}
 
-	listener, err := multiListen(addr, s.config.timeout)
+	listener, err := multiListen(addr, s.config)
 
 	if err != nil {
 		protectRun(func() {

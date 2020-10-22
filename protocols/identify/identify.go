@@ -7,7 +7,7 @@ import (
 	"github.com/driftluo/tentacle-go"
 	"github.com/driftluo/tentacle-go/secio"
 	"github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr-net"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 const maxReturnListenAddrs = 10

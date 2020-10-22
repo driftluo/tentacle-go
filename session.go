@@ -9,7 +9,7 @@ import (
 	"github.com/driftluo/tentacle-go/secio"
 	"github.com/hashicorp/yamux"
 	ma "github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr-net"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 const (

@@ -10,7 +10,7 @@ import (
 	"github.com/hashicorp/yamux"
 	"github.com/libp2p/go-msgio"
 	ma "github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr-net"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 // Codec use on protocol stream to en/decode message
@@ -180,6 +180,8 @@ func DefaultServiceBuilder() *ServiceBuilder {
 			timeout:             10 * time.Second,
 			yamuxConfig:         yamux.DefaultConfig(),
 			maxConnectionNumber: 65535,
+			tcpBind:             nil,
+			wsBind:              nil,
 		},
 	}
 }
@@ -225,6 +227,42 @@ func (s *ServiceBuilder) YamuxConfig(config *yamux.Config) *ServiceBuilder {
 // Default is 65535
 func (s *ServiceBuilder) MaxConnectionNumber(num uint) *ServiceBuilder {
 	s.config.maxConnectionNumber = num
+	return s
+}
+
+// TCPBind use to bind all tcp session to listen port
+func (s *ServiceBuilder) TCPBind(addr ma.Multiaddr) *ServiceBuilder {
+	netTy, host, err := manet.DialArgs(addr)
+	if err != nil {
+		return s
+	}
+
+	switch netTy {
+	case "tcp", "tcp4", "tcp6":
+
+	default:
+		return s
+	}
+
+	s.config.tcpBind = &host
+	return s
+}
+
+// WsBind use to bind all ws session to listen port
+func (s *ServiceBuilder) WsBind(addr ma.Multiaddr) *ServiceBuilder {
+	netTy, host, err := manet.DialArgs(addr)
+	if err != nil {
+		return s
+	}
+
+	switch netTy {
+	case "tcp", "tcp4", "tcp6":
+
+	default:
+		return s
+	}
+
+	s.config.wsBind = &host
 	return s
 }
 

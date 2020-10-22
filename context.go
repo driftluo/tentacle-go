@@ -230,7 +230,7 @@ func (s *Service) Listen(addr ma.Multiaddr) (ma.Multiaddr, error) {
 	if !isSupport(addr) {
 		return nil, ErrNotSupport
 	}
-	listener, err := multiListen(addr, s.config.timeout)
+	listener, err := multiListen(addr, *s.config)
 	if err != nil {
 		return nil, err
 	}

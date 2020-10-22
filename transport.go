@@ -1,10 +1,8 @@
 package tentacle
 
 import (
-	"time"
-
 	"github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr-net"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 type transport interface {
@@ -12,23 +10,23 @@ type transport interface {
 	dial(multiaddr.Multiaddr) (manet.Conn, error)
 }
 
-func multiListen(addr multiaddr.Multiaddr, timeout time.Duration) (manet.Listener, error) {
+func multiListen(addr multiaddr.Multiaddr, config serviceConfig) (manet.Listener, error) {
 	switch findTy(addr) {
 	case tcp:
-		return newTCPTransport(timeout).listen(addr)
+		return newTCPTransport(config.timeout, config.tcpBind).listen(addr)
 	case ws:
-		return newWSTransport(timeout).listen(addr)
+		return newWSTransport(config.timeout, config.wsBind).listen(addr)
 	default:
 		return nil, ErrNotSupport
 	}
 }
 
-func multiDial(addr multiaddr.Multiaddr, timeout time.Duration) (manet.Conn, error) {
+func multiDial(addr multiaddr.Multiaddr, config serviceConfig) (manet.Conn, error) {
 	switch findTy(addr) {
 	case tcp:
-		return newTCPTransport(timeout).dial(addr)
+		return newTCPTransport(config.timeout, config.tcpBind).dial(addr)
 	case ws:
-		return newWSTransport(timeout).dial(addr)
+		return newWSTransport(config.timeout, config.wsBind).dial(addr)
 	default:
 		return nil, ErrNotSupport
 	}
