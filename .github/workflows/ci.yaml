@@ -1,0 +1,21 @@
+name: Github Action
+
+on:
+  pull_request:  # trigger on pull requests
+  push:
+    branches:
+      - master    # trigger on push to master
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - go: master
+    steps:
+      - uses: actions/checkout@v2
+      - name: Test
+        run: |
+          make test
