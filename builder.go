@@ -57,6 +57,7 @@ type MetaBuilder struct {
 	codec           CodecFn
 	serviceHandle   ServiceProtocol
 	sessionHandle   SessionProtocolFn
+	protoSpawn      ProtocolSpawn
 	selectVersion   SelectFn
 	beforeSend      BeforeSend
 	beforeReceive   BeforeReceive
@@ -71,6 +72,7 @@ func DefaultMeta() *MetaBuilder {
 		codec:           DefaultCodec,
 		serviceHandle:   nil,
 		sessionHandle:   nil,
+		protoSpawn:      nil,
 		selectVersion:   SelectVersion,
 		beforeSend:      DefaultBeforeSend,
 		beforeReceive:   DefaultBeforeReceive,
@@ -127,6 +129,14 @@ func (m *MetaBuilder) SessionHandle(sessionFn SessionProtocolFn) *MetaBuilder {
 	return m
 }
 
+// ProtoSpawn define the spawn process of the protocol read part
+//
+// Mutually exclusive with protocol handle
+func (m *MetaBuilder) ProtoSpawn(protoSpawn ProtocolSpawn) *MetaBuilder {
+	m.protoSpawn = protoSpawn
+	return m
+}
+
 // SelectVersion protocol version selection rule, default is `SelectVersion`
 func (m *MetaBuilder) SelectVersion(selectfn SelectFn) *MetaBuilder {
 	m.selectVersion = selectfn
@@ -147,6 +157,10 @@ func (m *MetaBuilder) BeforeReceive(beforeRecv BeforeReceive) *MetaBuilder {
 
 // Build combine the configuration of this builder to create a ProtocolMeta
 func (m *MetaBuilder) Build() ProtocolMeta {
+	if m.protoSpawn != nil && (m.serviceHandle != nil || m.sessionHandle != nil) {
+		panic("It is not allowed to use handle and spawn at the same time ")
+	}
+
 	return ProtocolMeta{
 		inner: &meta{
 			id:              m.id,
@@ -155,6 +169,7 @@ func (m *MetaBuilder) Build() ProtocolMeta {
 			codec:           m.codec,
 			selectVersion:   m.selectVersion,
 			beforeReceive:   m.beforeReceive,
+			spawn:           m.protoSpawn,
 		},
 		serviceHandle:   m.serviceHandle,
 		sessionHandleFn: m.sessionHandle,

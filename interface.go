@@ -376,6 +376,30 @@ type SessionProtocol interface {
 	Notify(ctx *ProtocolContextRef, token uint64)
 }
 
+// SubstreamReadPart is the read part for the protocol side
+type SubstreamReadPart interface {
+	// Get next message
+	NextMsg() (msg []byte, err error)
+	// Get protocol id
+	ProtocolID() ProtocolID
+	// Get protocol version
+	Version() string
+}
+
+// When the negotiation is completed and the agreement is opened, will call the implementation,
+// allow users to implement the read processing of the protocol by themselves
+//
+// Implementing this interface means that streaming reading directly from the underlying substream
+// will become possible
+//
+// This interface implementation and the callback implementation are mutually exclusive, and will be
+// checked during construction, if both exist, it will panic
+type ProtocolSpawn interface {
+	// Spawn call on protocol opened
+	// It is assumed that the user will use the go syntax internally to put the Reader in a separate goroutine for execution
+	Spawn(ctx *SessionContext, control *Service, read SubstreamReadPart)
+}
+
 const (
 	taskProtocolMessage uint = iota
 	taskProtocolOpen

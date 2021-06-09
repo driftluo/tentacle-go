@@ -534,6 +534,7 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 		sessionProtoSenders:   sessionProtoSenders,
 		sessionState:          state,
 		timeout:               s.config.timeout,
+		serviceControl:        s.control(),
 
 		protoEventChan: make(chan protocolEvent, receiveSize),
 		serviceSender:  s.sessionEventChan,

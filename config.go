@@ -29,6 +29,7 @@ type meta struct {
 	codec           CodecFn
 	selectVersion   SelectFn
 	beforeReceive   BeforeReceive
+	spawn           ProtocolSpawn
 }
 
 // ProtocolMeta define the minimum data required for a custom protocol

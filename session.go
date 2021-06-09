@@ -108,6 +108,7 @@ type session struct {
 	sessionProtoSenders   map[ProtocolID]chan<- sessionProtocolEvent
 	sessionState          atomic.Value
 	timeout               time.Duration
+	serviceControl        *Service
 
 	// Read substream event and then output to service
 	protoEventChan chan protocolEvent
@@ -365,6 +366,7 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 		sID:     s.nextStreamID,
 		context: s.context,
 		dead:    dead,
+		version: event.version,
 
 		eventSender:        s.protoEventChan,
 		eventReceiver:      protoChan,
@@ -376,11 +378,15 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 	s.subStreams[s.nextStreamID] = protoChan
 	s.protoStreams[pid] = s.nextStreamID
 
-	protoStream.protoOpen(event.version)
-
 	s.nextStreamID++
 	go protoStream.runWrite()
-	go protoStream.runRead()
+
+	if proto.spawn != nil {
+		go proto.spawn.Spawn(s.context, s.serviceControl, &protoStream)
+	} else {
+		protoStream.protoOpen()
+		go protoStream.runRead()
+	}
 }
 
 func (s *session) closeSession() {

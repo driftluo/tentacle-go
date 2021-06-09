@@ -57,6 +57,7 @@ type subStream struct {
 	sID     streamID
 	context *SessionContext
 	dead    atomic.Value
+	version string
 
 	// Output protocol event to session
 	eventSender chan<- protocolEvent
@@ -70,13 +71,13 @@ type subStream struct {
 	sessionProtoSender chan<- sessionProtocolEvent
 }
 
-func (s *subStream) protoOpen(version string) {
+func (s *subStream) protoOpen() {
 	if s.serviceProtoSender != nil {
-		s.serviceProtoSender <- serviceProtocolEvent{tag: serviceProtocolConnected, event: serviceProtocolConnectedInner{context: s.context, version: version}}
+		s.serviceProtoSender <- serviceProtocolEvent{tag: serviceProtocolConnected, event: serviceProtocolConnectedInner{context: s.context, version: s.version}}
 	}
 
 	if s.sessionProtoSender != nil {
-		s.sessionProtoSender <- sessionProtocolEvent{tag: sessionProtocolOpened, event: version}
+		s.sessionProtoSender <- sessionProtocolEvent{tag: sessionProtocolOpened, event: s.version}
 	}
 }
 
@@ -122,6 +123,36 @@ func (s *subStream) runRead() {
 
 		s.sendToHandle(s.beforeReceive(readMsg))
 	}
+}
+
+func (s *subStream) NextMsg() (msg []byte, err error) {
+	if s.context.closed.Load().(bool) {
+		s.closeStream()
+		return nil, io.EOF
+	}
+
+	readMsg, err := s.socket.ReadMsg()
+
+	if err != nil {
+		s.dead.Store(true)
+		switch err {
+		case io.EOF:
+			s.closeStream()
+		default:
+			s.errorClose(err)
+		}
+		return nil, err
+	}
+
+	return s.beforeReceive(readMsg), nil
+}
+
+func (s *subStream) ProtocolID() ProtocolID {
+	return s.pID
+}
+
+func (s *subStream) Version() string {
+	return s.version
 }
 
 func (s *subStream) errorClose(err error) {
