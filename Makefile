@@ -1,7 +1,7 @@
 MOLC    := moleculec
-MOLC_VERSION := 0.7.0
+MOLC_VERSION := 0.7.2
 MOLC_GO := moleculec-go
-MOLC_GO_VERSION := 0.1.6
+MOLC_GO_VERSION := 0.1.7
 
 MOL_FILES := \
   mol/protocol_select.mol \
@@ -13,9 +13,9 @@ MOL_FILES := \
 MOL_GO_FILES := $(patsubst %.mol,%_mol.go,${MOL_FILES})
 
 test:
-	go test .
-	go test ./tests
-	go test ./secio
+	go test -count=1 .
+	go test -count=1 ./tests
+	go test -count=1 ./secio
 
 check-moleculec-version:
 	test "$$(${MOLC} --version | awk '{ print $$2 }' | tr -d ' ')" = ${MOLC_VERSION}
