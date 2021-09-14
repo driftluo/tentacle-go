@@ -1,7 +1,7 @@
 MOLC    := moleculec
 MOLC_VERSION := 0.7.2
 MOLC_GO := moleculec-go
-MOLC_GO_VERSION := 0.1.7
+MOLC_GO_VERSION := 0.1.8
 
 MOL_FILES := \
   mol/protocol_select.mol \
