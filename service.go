@@ -15,15 +15,13 @@ import (
 )
 
 // ErrHandshakeTimeout secio handshake timeout
-var ErrHandshakeTimeout = errors.New("Handshake timeout")
+var ErrHandshakeTimeout = errors.New("handshake timeout")
 
 // ErrDialTimeout dial timeout
 var ErrDialTimeout = errors.New("dial timeout")
 
 // ErrListenerTimeout listen timeout
 var ErrListenerTimeout = errors.New("listen timeout")
-
-const receiveSize uint = 512
 
 type sessionProto struct {
 	sid SessionID
@@ -475,8 +473,8 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 		}
 	}
 
-	quick := make(chan sessionEvent, sendSize)
-	event := make(chan sessionEvent, sendSize)
+	quick := make(chan sessionEvent, s.config.channelSize)
+	event := make(chan sessionEvent, s.config.channelSize)
 
 	closed := atomic.Value{}
 	closed.Store(false)
@@ -535,8 +533,9 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 		sessionState:          state,
 		timeout:               s.config.timeout,
 		serviceControl:        s.control(),
+		channelSize:           s.config.channelSize,
 
-		protoEventChan: make(chan protocolEvent, receiveSize),
+		protoEventChan: make(chan protocolEvent, s.config.channelSize),
 		serviceSender:  s.sessionEventChan,
 
 		subStreams:      make(map[streamID]chan<- protocolEvent),
@@ -648,7 +647,7 @@ func (s *service) sessionHandlesOpen(sid SessionID) {
 			if !ok {
 				continue
 			}
-			sessionChan := make(chan sessionProtocolEvent, receiveSize)
+			sessionChan := make(chan sessionProtocolEvent, s.config.channelSize)
 
 			s.sessionProtoHandles[sessionProto{pid: v.inner.id, sid: sid}] = sessionChan
 
@@ -674,7 +673,7 @@ func (s *service) sessionHandlesOpen(sid SessionID) {
 func (s *service) initServiceProtoHandles() {
 	for _, v := range s.protoclConfigs {
 		if v.serviceHandle != nil {
-			serviceChan := make(chan serviceProtocolEvent, receiveSize)
+			serviceChan := make(chan serviceProtocolEvent, s.config.channelSize)
 			s.serviceProtoHandles[v.inner.id] = serviceChan
 			pctx := ProtocolContext{Pid: v.inner.id}
 			pctx.ServiceContext = s.serviceContext

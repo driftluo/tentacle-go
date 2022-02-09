@@ -44,6 +44,7 @@ type serviceConfig struct {
 	timeout             time.Duration
 	yamuxConfig         *yamux.Config
 	maxConnectionNumber uint
+	channelSize         uint
 	tcpBind             *string
 	wsBind              *string
 }

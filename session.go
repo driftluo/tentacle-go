@@ -42,8 +42,6 @@ const (
 	protocolHandleError
 )
 
-const sendSize int = 512
-
 // As a firm believer in the type system, this is the last stubborn stand against the Go type!
 type sessionEvent struct {
 	tag   uint
@@ -109,6 +107,7 @@ type session struct {
 	sessionState          atomic.Value
 	timeout               time.Duration
 	serviceControl        *Service
+	channelSize           uint
 
 	// Read substream event and then output to service
 	protoEventChan chan protocolEvent
@@ -356,7 +355,7 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 		return
 	}
 
-	protoChan := make(chan protocolEvent, sendSize)
+	protoChan := make(chan protocolEvent, s.channelSize)
 	dead := atomic.Value{}
 	dead.Store(false)
 

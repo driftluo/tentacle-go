@@ -195,6 +195,7 @@ func DefaultServiceBuilder() *ServiceBuilder {
 			timeout:             10 * time.Second,
 			yamuxConfig:         yamux.DefaultConfig(),
 			maxConnectionNumber: 65535,
+			channelSize:         128,
 			tcpBind:             nil,
 			wsBind:              nil,
 		},
@@ -245,6 +246,14 @@ func (s *ServiceBuilder) MaxConnectionNumber(num uint) *ServiceBuilder {
 	return s
 }
 
+// ChannelSize the size of each channel used on tentacle
+//
+// Default is 128
+func (s *ServiceBuilder) ChannelSize(size uint) *ServiceBuilder {
+	s.config.channelSize = size
+	return s
+}
+
 // TCPBind use to bind all tcp session to listen port
 func (s *ServiceBuilder) TCPBind(addr ma.Multiaddr) *ServiceBuilder {
 	netTy, host, err := manet.DialArgs(addr)
@@ -291,9 +300,9 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 		state = &serviceState{tag: running, workers: 0}
 	}
 
-	quickTask := make(chan serviceTask, sendSize)
-	task := make(chan serviceTask, sendSize)
-	sessionChan := make(chan sessionEvent, sendSize)
+	quickTask := make(chan serviceTask, s.config.channelSize)
+	task := make(chan serviceTask, s.config.channelSize)
+	sessionChan := make(chan sessionEvent, s.config.channelSize)
 
 	shutdown := atomic.Value{}
 	shutdown.Store(false)
