@@ -303,20 +303,23 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 	quickTask := make(chan serviceTask, s.config.channelSize)
 	task := make(chan serviceTask, s.config.channelSize)
 	sessionChan := make(chan sessionEvent, s.config.channelSize)
+	handleChan := make(chan interface{}, s.config.channelSize)
 
 	shutdown := atomic.Value{}
 	shutdown.Store(false)
 
+	serviceContext := &ServiceContext{
+		Listens: []ma.Multiaddr{},
+		Key:     s.keyPair,
+
+		quickTaskSender: quickTask,
+		taskSender:      task,
+	}
+
 	service := service{
 		protoclConfigs: s.inner,
-		serviceContext: &ServiceContext{
-			Listens: []ma.Multiaddr{},
-			Key:     s.keyPair,
-
-			quickTaskSender: quickTask,
-			taskSender:      task,
-		},
-		state: state,
+		serviceContext: serviceContext,
+		state:          state,
 
 		listens:       make(map[ma.Multiaddr]manet.Listener),
 		dialProtocols: make(map[ma.Multiaddr]TargetProtocol),
@@ -324,7 +327,7 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 		nextSession:   SessionID(0),
 		beforeSends:   make(map[ProtocolID]BeforeSend),
 
-		handle:              handle,
+		handleSender:        handleChan,
 		serviceProtoHandles: make(map[ProtocolID]chan<- serviceProtocolEvent),
 		sessionProtoHandles: make(map[sessionProto]chan<- sessionProtocolEvent),
 		sessionEventChan:    sessionChan,
@@ -335,7 +338,48 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 		shutdown: shutdown,
 	}
 
+	handleProc := serviceHandleProc{
+		handle:         handle,
+		serviceContext: serviceContext,
+		shutdown:       &service.shutdown,
+		recv:           handleChan,
+	}
+
+	go handleProc.run()
+
 	go service.run()
 
 	return service.control()
+}
+
+type serviceHandleProc struct {
+	handle         ServiceHandle
+	serviceContext *ServiceContext
+	shutdown       *atomic.Value
+	recv           <-chan interface{}
+}
+
+func (h *serviceHandleProc) run() {
+	for {
+		if h.shutdown.Load().(bool) {
+			break
+		}
+		select {
+		case <-time.After(100 * time.Microsecond):
+			continue
+		case event := <-h.recv:
+			if h.handle != nil {
+				ev, ok := event.(ServiceEvent)
+				if ok {
+					h.handle.HandleEvent(h.serviceContext, ev)
+					continue
+				}
+
+				e, ok := event.(ServiceError)
+				if ok {
+					h.handle.HandleError(h.serviceContext, e)
+				}
+			}
+		}
+	}
 }

@@ -6,13 +6,16 @@ import (
 	"fmt"
 
 	// may replace by std/crypto in future
-	btcec "github.com/btcsuite/btcd/btcec"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	mol "github.com/driftluo/tentacle-go/secio/mol"
 )
 
-type secp256k1PrivateKey btcec.PrivateKey
+type secp256k1PrivateKey secp.PrivateKey
 
-type secp256k1PublicKey btcec.PublicKey
+type secp256k1PublicKey secp.PublicKey
+
+const PrivKeyBytesLen = 32
 
 // from molecule generate code
 const typeID = mol.Number(0)
@@ -56,10 +59,10 @@ type PubKey interface {
 
 // GenerateSecp256k1 return a random Secp256k1 private key
 func GenerateSecp256k1() PrivKey {
-	var priv *btcec.PrivateKey
+	var priv *secp.PrivateKey
 	var err error
 	for {
-		priv, err = btcec.NewPrivateKey(btcec.S256())
+		priv, err = secp.GeneratePrivateKey()
 		if err != nil {
 			continue
 		} else {
@@ -72,11 +75,11 @@ func GenerateSecp256k1() PrivKey {
 
 // Secp256k1FromBytes return private key from bytes
 func Secp256k1FromBytes(key []byte) (PrivKey, error) {
-	if len(key) != btcec.PrivKeyBytesLen {
-		return nil, fmt.Errorf("expected secp256k1 data size to be %d", btcec.PrivKeyBytesLen)
+	if len(key) != PrivKeyBytesLen {
+		return nil, fmt.Errorf("expected secp256k1 data size to be %d", PrivKeyBytesLen)
 	}
 
-	private, _ := btcec.PrivKeyFromBytes(btcec.S256(), key)
+	private := secp.PrivKeyFromBytes(key)
 	return (*secp256k1PrivateKey)(private), nil
 }
 
@@ -86,23 +89,21 @@ func (p *secp256k1PrivateKey) Sign(msg []byte) ([]byte, error) {
 		return nil, fmt.Errorf("expected secp256k1 msg size to be 32")
 	}
 
-	sig, err := (*btcec.PrivateKey)(p).Sign(msg[:])
-
-	if err != nil {
-		return nil, err
-	}
+	sig := ecdsa.Sign((*secp.PrivateKey)(p), msg[:])
 
 	return sig.Serialize(), nil
 }
 
 // GenPublic returns a public key
 func (p *secp256k1PrivateKey) GenPublic() PubKey {
-	return (*secp256k1PublicKey)((*btcec.PrivateKey)(p).PubKey())
+	return (*secp256k1PublicKey)((*secp.PrivateKey)(p).PubKey())
 }
 
 // Bytes returns the bytes of the key
 func (p *secp256k1PrivateKey) Bytes() []byte {
-	return (*btcec.PrivateKey)(p).Serialize()
+	var privKeyBytes [PrivKeyBytesLen]byte
+	p.Key.PutBytes(&privKeyBytes)
+	return privKeyBytes[:]
 }
 
 // Equals compares two private keys
@@ -131,12 +132,12 @@ func (k *secp256k1PublicKey) Verify(msg []byte, sigRaw []byte) error {
 		return fmt.Errorf("expected secp256k1 msg size to be 32")
 	}
 
-	sig, err := btcec.ParseDERSignature(sigRaw, btcec.S256())
+	sig, err := ecdsa.ParseDERSignature(sigRaw)
 	if err != nil {
 		return err
 	}
 
-	if sig.Verify(msg[:], (*btcec.PublicKey)(k)) {
+	if sig.Verify(msg[:], (*secp.PublicKey)(k)) {
 		return nil
 	}
 
@@ -162,7 +163,7 @@ func DecodeToSecpPub(data []byte) (PubKey, error) {
 		return nil, errors.New("not secp256k1 pubkey")
 	}
 
-	s, err := btcec.ParsePubKey(k.ToUnion().IntoSecp256k1().RawData(), btcec.S256())
+	s, err := secp.ParsePubKey(k.ToUnion().IntoSecp256k1().RawData())
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +173,7 @@ func DecodeToSecpPub(data []byte) (PubKey, error) {
 
 // Bytes returns the bytes of the key
 func (k *secp256k1PublicKey) Bytes() []byte {
-	return (*btcec.PublicKey)(k).SerializeCompressed()
+	return (*secp.PublicKey)(k).SerializeCompressed()
 }
 
 // Equals compares two public keys
@@ -182,7 +183,7 @@ func (k *secp256k1PublicKey) Equals(other Key) bool {
 		return basicEquals(k, other)
 	}
 
-	return (*btcec.PublicKey)(k).IsEqual((*btcec.PublicKey)(sk))
+	return (*secp.PublicKey)(k).IsEqual((*secp.PublicKey)(sk))
 }
 
 // TypeId return molecule union ID

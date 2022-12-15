@@ -121,7 +121,7 @@ type service struct {
 	nextSession   SessionID
 	beforeSends   map[ProtocolID]BeforeSend
 
-	handle ServiceHandle
+	handleSender chan<- interface{}
 
 	// Unified temporary storage
 	serviceProtoHandles map[ProtocolID]chan<- serviceProtocolEvent
@@ -305,9 +305,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 		s.state.preShutdown()
 		for addr, listen := range s.listens {
 			listen.Close()
-			if s.handle != nil {
-				s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: ListenClose, Event: addr})
-			}
+			s.handleSender <- ServiceEvent{Tag: ListenClose, Event: addr}
 		}
 		s.listens = make(map[ma.Multiaddr]manet.Listener)
 
@@ -341,9 +339,7 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 		if inner.ty.Name() == "Outbound" {
 			s.state.decrease()
 			delete(s.dialProtocols, inner.remoteAddr)
-			if s.handle != nil {
-				s.handle.HandleError(s.serviceContext, ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: HandshakeError, Inner: inner.err, Addr: inner.remoteAddr}})
-			}
+			s.handleSender <- ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: HandshakeError, Inner: inner.err, Addr: inner.remoteAddr}}
 		}
 
 	case protocolSelectError:
@@ -352,44 +348,33 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 		if !ok {
 			return
 		}
-		if s.handle != nil {
-			s.handle.HandleError(s.serviceContext, ServiceError{Tag: ProtocolSelectError, Event: ProtocolSelectErrorInner{Name: inner.protoName, Context: control.inner}})
-		}
+		s.handleSender <- ServiceError{Tag: ProtocolSelectError, Event: ProtocolSelectErrorInner{Name: inner.protoName, Context: control.inner}}
 
 	case protocolHandleError:
 		inner := event.event.(protocolHandleErrorInner)
-		if s.handle != nil {
-			s.handle.HandleError(s.serviceContext, ServiceError{Tag: ProtocolHandleError, Event: ProtocolHandleErrorInner{PID: inner.pid, SID: inner.sid}})
-		}
+		s.handleSender <- ServiceError{Tag: ProtocolHandleError, Event: ProtocolHandleErrorInner{PID: inner.pid, SID: inner.sid}}
 		s.handleServiceTask(serviceTask{tag: taskShutdown}, high)
 
 	case protocolError:
 		inner := event.event.(protocolErrorInner)
-		if s.handle != nil {
-			s.handle.HandleError(s.serviceContext, ServiceError{Tag: ProtocolError, Event: ProtocolErrorInner{PID: inner.pid, SID: inner.id, Err: inner.err}})
-		}
+		s.handleSender <- ServiceError{Tag: ProtocolError, Event: ProtocolErrorInner{PID: inner.pid, SID: inner.id, Err: inner.err}}
 
 	case dialError:
 		inner := event.event.(DialerErrorInner)
 		s.state.decrease()
 		delete(s.dialProtocols, inner.Addr)
-		if s.handle != nil {
-			s.handle.HandleError(s.serviceContext, ServiceError{Tag: DialerError, Event: inner})
-		}
+		s.handleSender <- ServiceError{Tag: DialerError, Event: inner}
 
 	case listenError:
 		s.state.decrease()
 		inner := event.event.(ListenErrorInner)
-		if s.handle != nil {
-			s.handle.HandleError(s.serviceContext, ServiceError{Tag: ListenError, Event: inner})
-		}
+		s.handleSender <- ServiceError{Tag: ListenError, Event: inner}
+
 		_, ok := s.listens[inner.Addr]
 		if ok {
 			deleteSlice(s.serviceContext.Listens, inner.Addr)
 			delete(s.listens, inner.Addr)
-			if s.handle != nil {
-				s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: ListenClose, Event: inner.Addr})
-			}
+			s.handleSender <- ServiceEvent{Tag: ListenClose, Event: inner.Addr}
 		}
 
 	case sessionTimeout:
@@ -398,9 +383,7 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 		if !ok {
 			return
 		}
-		if s.handle != nil {
-			s.handle.HandleError(s.serviceContext, ServiceError{Tag: SessionTimeout, Event: SessionTimeoutInner{Context: control.inner}})
-		}
+		s.handleSender <- ServiceError{Tag: SessionTimeout, Event: SessionTimeoutInner{Context: control.inner}}
 
 	case muxerError:
 		inner := event.event.(muxerErrorInner)
@@ -408,9 +391,7 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 		if !ok {
 			return
 		}
-		if s.handle != nil {
-			s.handle.HandleError(s.serviceContext, ServiceError{Tag: MuxerError, Event: MuxerErrorInner{Context: control.inner, Err: inner.err}})
-		}
+		s.handleSender <- ServiceError{Tag: MuxerError, Event: MuxerErrorInner{Context: control.inner, Err: inner.err}}
 
 	case listenStart:
 		inner := event.event.(listenStartInner)
@@ -435,14 +416,10 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 				defer conn.Close()
 				switch ty.Name() {
 				case "Outbound":
-					if s.handle != nil {
-						s.handle.HandleError(s.serviceContext, ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: RepeatedConnection, Inner: control.inner.Sid, Addr: remoteAddr}})
-					}
+					s.handleSender <- ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: RepeatedConnection, Inner: control.inner.Sid, Addr: remoteAddr}}
 
 				case "Inbound":
-					if s.handle != nil {
-						s.handle.HandleError(s.serviceContext, ServiceError{Tag: ListenError, Event: ListenErrorInner{Tag: RepeatedConnection, Inner: control.inner.Sid, Addr: listenAddr}})
-					}
+					s.handleSender <- ServiceError{Tag: ListenError, Event: ListenErrorInner{Tag: RepeatedConnection, Inner: control.inner.Sid, Addr: listenAddr}}
 				}
 				return
 			}
@@ -457,9 +434,7 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 		} else {
 			if !peerid.IsKey(remotePubkey) {
 				defer conn.Close()
-				if s.handle != nil {
-					s.handle.HandleError(s.serviceContext, ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: PeerIDNotMatch, Addr: remoteAddr}})
-				}
+				s.handleSender <- ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: PeerIDNotMatch, Addr: remoteAddr}}
 				return
 			}
 		}
@@ -582,9 +557,8 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 	go session.runAccept()
 	go session.runReceiver()
 
-	if s.handle != nil {
-		s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: SessionOpen, Event: control.inner})
-	}
+	s.handleSender <- ServiceEvent{Tag: SessionOpen, Event: control.inner}
+
 }
 
 func (s *service) sessionClose(id SessionID, source uint8) {
@@ -616,9 +590,7 @@ func (s *service) sessionClose(id SessionID, source uint8) {
 		delete(s.sessionProtoHandles, v)
 	}
 
-	if s.handle != nil {
-		s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: SessionClose, Event: control.inner})
-	}
+	s.handleSender <- ServiceEvent{Tag: SessionClose, Event: control.inner}
 }
 
 func (s *service) protocolClose(sid SessionID, pid ProtocolID) {
@@ -738,9 +710,7 @@ func (s *service) listen(addr ma.Multiaddr) {
 }
 
 func (s *service) listenerstart(inner listenStartInner) {
-	if s.handle != nil {
-		s.handle.HandleEvent(s.serviceContext, ServiceEvent{Tag: ListenStarted, Event: inner.listener.Multiaddr()})
-	}
+	s.handleSender <- ServiceEvent{Tag: ListenStarted, Event: inner.listener.Multiaddr()}
 	s.state.decrease()
 	s.listens[inner.listener.Multiaddr()] = inner.listener
 	s.serviceContext.Listens = append(s.serviceContext.Listens, inner.listener.Multiaddr())
