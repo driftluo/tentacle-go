@@ -23,6 +23,6 @@ require (
 	github.com/multiformats/go-varint v0.0.7
 	github.com/seiflotfy/cuckoofilter v0.0.0-20220411075957-e3b120b3f5fb
 	github.com/stretchr/testify v1.8.0 // indirect
-	golang.org/x/crypto v0.4.0
+	golang.org/x/crypto v0.17.0
 	lukechampine.com/blake3 v1.1.7 // indirect
 )
