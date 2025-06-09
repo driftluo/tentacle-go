@@ -18,30 +18,6 @@ func newTCPTransport(timeout time.Duration, bind *string) *tcpTransport {
 	return &tcpTransport{timeout: timeout, bind: bind}
 }
 
-func (m *tcpTransport) listen(addr multiaddr.Multiaddr) (manet.Listener, error) {
-	netTy, host, err := manet.DialArgs(addr)
-	if err != nil {
-		return nil, err
-	}
-
-	var listener net.Listener
-	var erro error
-
-	if m.bind != nil {
-		listener, erro = reuseport.Listen(netTy, host)
-		if erro != nil {
-			return nil, erro
-		}
-	} else {
-		listener, erro = net.Listen(netTy, host)
-		if erro != nil {
-			return nil, erro
-		}
-	}
-
-	return manet.WrapNetListener(listener)
-}
-
 func (m *tcpTransport) dial(addr multiaddr.Multiaddr) (manet.Conn, error) {
 	netTy, host, err := manet.DialArgs(addr)
 	if err != nil {

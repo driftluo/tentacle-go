@@ -1,7 +1,6 @@
 package tentacle
 
 import (
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -23,43 +22,11 @@ func newWSTransport(timeout time.Duration, bind *string) *wsTransport {
 	return &wsTransport{timeout: timeout, bind: bind}
 }
 
-func (m *wsTransport) listen(addr multiaddr.Multiaddr) (manet.Listener, error) {
-	netTy, host, err := manet.DialArgs(addr)
-	if err != nil {
-		return nil, err
-	}
-
-	var listener net.Listener
-	var erro error
-
-	if m.bind != nil {
-		listener, erro = reuseport.Listen(netTy, host)
-		if erro != nil {
-			return nil, erro
-		}
-	} else {
-		listener, erro = net.Listen(netTy, host)
-		if erro != nil {
-			return nil, erro
-		}
-	}
-
-	wsl, err := newWsListener(listener)
-	if err != nil {
-		return nil, err
-	}
-
-	go wsl.serve()
-
-	return wsl, nil
-}
-
 func (m *wsTransport) dial(addr multiaddr.Multiaddr) (manet.Conn, error) {
 	_, host, err := manet.DialArgs(addr)
 	if err != nil {
 		return nil, err
 	}
-
 	resChan := make(chan interface{})
 
 	go func() {
@@ -93,81 +60,6 @@ func (m *wsTransport) dial(addr multiaddr.Multiaddr) (manet.Conn, error) {
 		}
 		return nil, res.(error)
 	}
-}
-
-var _ manet.Listener = &wsListener{}
-
-var upgrader = websocket.Upgrader{
-	// Allow requests from *all* origins.
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
-
-type wsListener struct {
-	inner    net.Listener
-	addr     multiaddr.Multiaddr
-	incoming chan manet.Conn
-	closed   chan uint
-}
-
-func newWsListener(l net.Listener) (*wsListener, error) {
-	muladdr, err := manet.FromNetAddr(l.Addr())
-	if err != nil {
-		return nil, err
-	}
-	wsaddr, err := multiaddr.NewMultiaddr("/ws")
-	if err != nil {
-		return nil, err
-	}
-	muladdr = muladdr.Encapsulate(wsaddr)
-
-	return &wsListener{
-		inner:    l,
-		addr:     muladdr,
-		incoming: make(chan manet.Conn),
-		closed:   make(chan uint),
-	}, nil
-}
-
-func (l *wsListener) serve() {
-	defer close(l.closed)
-	_ = http.Serve(l.inner, l)
-}
-
-func (l *wsListener) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	wsconn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		// The upgrader writes a response for us.
-		return
-	}
-
-	l.incoming <- newWsConn(wsconn)
-}
-
-func (l *wsListener) Accept() (manet.Conn, error) {
-	select {
-	case conn, ok := <-l.incoming:
-		if !ok {
-			return nil, errors.New("listener is closed")
-		}
-
-		return conn, nil
-	case <-l.closed:
-		return nil, errors.New("listener is closed")
-	}
-}
-
-func (l *wsListener) Multiaddr() multiaddr.Multiaddr {
-	return l.addr
-}
-
-func (l *wsListener) Addr() net.Addr {
-	return l.inner.Addr()
-}
-
-func (l *wsListener) Close() error {
-	return l.inner.Close()
 }
 
 var _ net.Conn = &wsStream{}

@@ -241,7 +241,7 @@ func (s *Service) Listen(addr ma.Multiaddr) (ma.Multiaddr, error) {
 		return nil, err
 	}
 	s.state.increase()
-	return listener.Multiaddr(), nil
+	return listener.address, nil
 }
 
 // ListenAsync try create a new listener, if service is shutdown/addr not support, return error

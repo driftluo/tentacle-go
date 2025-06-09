@@ -47,6 +47,7 @@ type serviceConfig struct {
 	channelSize         uint
 	tcpBind             *string
 	wsBind              *string
+	global              *globalListenState
 }
 
 const (

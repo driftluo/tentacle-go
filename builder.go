@@ -3,6 +3,7 @@ package tentacle
 import (
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -198,6 +199,7 @@ func DefaultServiceBuilder() *ServiceBuilder {
 			channelSize:         128,
 			tcpBind:             nil,
 			wsBind:              nil,
+			global:              &globalListenState{status: make(map[string]*upgradeMode), lock: sync.Mutex{}},
 		},
 	}
 }

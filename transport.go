@@ -5,17 +5,14 @@ import (
 	manet "github.com/multiformats/go-multiaddr/net"
 )
 
-type transport interface {
-	listen(multiaddr.Multiaddr) (manet.Listener, error)
-	dial(multiaddr.Multiaddr) (manet.Conn, error)
-}
-
-func multiListen(addr multiaddr.Multiaddr, config serviceConfig) (manet.Listener, error) {
+func multiListen(addr multiaddr.Multiaddr, config serviceConfig) (*TcpBaseListenerEnum, error) {
 	switch findTy(addr) {
 	case tcp:
-		return newTCPTransport(config.timeout, config.tcpBind).listen(addr)
+		mode := upgradeMode(0b1)
+		return newTcpBaseListener(config.timeout, config.tcpBind, addr, &mode, config.global)
 	case ws:
-		return newWSTransport(config.timeout, config.wsBind).listen(addr)
+		mode := upgradeMode(0b10)
+		return newTcpBaseListener(config.timeout, config.tcpBind, addr, &mode, config.global)
 	default:
 		return nil, ErrNotSupport
 	}

@@ -9,7 +9,6 @@ import (
 	"github.com/driftluo/tentacle-go/secio"
 	"github.com/hashicorp/yamux"
 	ma "github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 const (
@@ -91,7 +90,7 @@ type handshakeSuccessInner struct {
 }
 
 type listenStartInner struct {
-	listener manet.Listener
+	listener *TcpBaseListenerEnum
 }
 
 type session struct {

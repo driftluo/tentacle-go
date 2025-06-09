@@ -348,7 +348,6 @@ type ServiceHandle interface {
 //
 // The opening and closing of the protocol will create and clean up the handle exclusive
 // to the session, but the service handle will remain in the state until the service is closed.
-//
 type ServiceProtocol interface {
 	// This function is called when the service start.
 	//

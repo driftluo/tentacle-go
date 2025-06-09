@@ -139,7 +139,7 @@ func server() {
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1337")
 	server.Listen(addr)
-	wsaddr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1338/ws")
+	wsaddr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1337/ws")
 	server.Listen(wsaddr)
 	for {
 		if server.IsShutdown() {

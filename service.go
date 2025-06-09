@@ -53,7 +53,6 @@ func (s *serviceListener) run() {
 		if s.shutdown.Load().(bool) {
 			break
 		}
-
 		conn, err := s.listener.Accept()
 
 		if err != nil {
@@ -72,14 +71,12 @@ func handshake(conn manet.Conn, ty SessionType, remoteAddr ma.Multiaddr, selfKey
 	// secio or not
 	if selfKey != nil {
 		resChan := make(chan sessionEvent)
-
 		go func() {
 			secConn, err := secio.NewConfig(selfKey).Handshake(conn)
 			if err != nil {
 				resChan <- sessionEvent{tag: handshakeError, event: handshakeErrorInner{ty: ty, err: err, remoteAddr: remoteAddr}}
 				return
 			}
-
 			resChan <- sessionEvent{tag: handshakeSuccess, event: handshakeSuccessInner{ty: ty, conn: secConn, remoteAddr: remoteAddr, listenAddr: listenAddr, remotePubkey: secConn.RemotePub()}}
 		}()
 
@@ -710,19 +707,27 @@ func (s *service) listen(addr ma.Multiaddr) {
 }
 
 func (s *service) listenerstart(inner listenStartInner) {
-	s.handleSender <- ServiceEvent{Tag: ListenStarted, Event: inner.listener.Multiaddr()}
-	s.state.decrease()
-	s.listens[inner.listener.Multiaddr()] = inner.listener
-	s.serviceContext.Listens = append(s.serviceContext.Listens, inner.listener.Multiaddr())
+	switch inner.listener.enum {
+	// upgrade mode
+	case 0:
+		s.handleSender <- ServiceEvent{Tag: ListenStarted, Event: inner.listener.address}
+	// normal mode
+	case 1:
+		s.handleSender <- ServiceEvent{Tag: ListenStarted, Event: inner.listener.address}
+		s.state.decrease()
+		s.listens[inner.listener.address] = inner.listener.listener
+		s.serviceContext.Listens = append(s.serviceContext.Listens, inner.listener.address)
 
-	listen := serviceListener{
-		shutdown:       &s.shutdown,
-		listener:       inner.listener,
-		eventSender:    s.sessionEventChan,
-		config:         s.config,
-		serviceContext: s.serviceContext,
+		listen := serviceListener{
+			shutdown:       &s.shutdown,
+			listener:       inner.listener.listener,
+			eventSender:    s.sessionEventChan,
+			config:         s.config,
+			serviceContext: s.serviceContext,
+		}
+		go listen.run()
 	}
-	go listen.run()
+
 }
 
 func (s *service) control() *Service {

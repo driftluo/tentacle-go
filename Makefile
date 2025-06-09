@@ -1,7 +1,7 @@
 MOLC    := moleculec
-MOLC_VERSION := 0.7.3
+MOLC_VERSION := 0.8.0
 MOLC_GO := moleculec-go
-MOLC_GO_VERSION := 0.1.9
+MOLC_GO_VERSION := 0.1.11
 
 MOL_FILES := \
   mol/protocol_select.mol \
@@ -19,7 +19,7 @@ test:
 
 check-moleculec-version:
 	test "$$(${MOLC} --version | awk '{ print $$2 }' | tr -d ' ')" = ${MOLC_VERSION}
-	test "$$(${MOLC_GO} --version | awk '{ print $$4 }' | tr -d ' ')" = ${MOLC_GO_VERSION}
+	test "$$(${MOLC_GO} --version | awk '{ print $$3 }' | tr -d ' ')" = ${MOLC_GO_VERSION}
 
 %_mol.go: %.mol check-moleculec-version
 	${MOLC} --language go --schema-file $< | gofmt > $@
