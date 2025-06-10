@@ -2,20 +2,16 @@ package tentacle
 
 import (
 	"errors"
+	"slices"
 
 	"github.com/driftluo/tentacle-go/secio"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
 func deleteSlice(source []ma.Multiaddr, item ma.Multiaddr) []ma.Multiaddr {
-	j := 0
-	for _, val := range source {
-		if val != item {
-			source[j] = val
-			j++
-		}
-	}
-	return source[:j]
+	return slices.DeleteFunc(source, func(val ma.Multiaddr) bool {
+		return val.Equal(item)
+	})
 }
 
 func protectRun(entry func(), report func()) {

@@ -2,6 +2,7 @@ package tentacle
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/driftluo/tentacle-go/secio"
@@ -47,7 +48,7 @@ func TestDeleteSlice(t *testing.T) {
 	b := deleteSlice(a, m1)
 
 	for _, v := range b {
-		if v == m1 {
+		if slices.Equal(v, m1) {
 			t.Fatal("not delete")
 		}
 	}

@@ -112,8 +112,9 @@ type service struct {
 	// multi transport
 	// upnp client
 
-	listens       map[ma.Multiaddr]manet.Listener
-	dialProtocols map[ma.Multiaddr]TargetProtocol
+	// key: multiaddr.String()
+	listens       map[string]manet.Listener
+	dialProtocols map[string]TargetProtocol
 	config        serviceConfig
 	nextSession   SessionID
 	beforeSends   map[ProtocolID]BeforeSend
@@ -239,7 +240,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 
 	case taskDial:
 		inner := event.event.(taskDialInner)
-		_, ok := s.dialProtocols[inner.addr]
+		_, ok := s.dialProtocols[inner.addr.String()]
 		if !ok {
 			s.once.Do(func() {
 				s.init = true
@@ -250,7 +251,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 
 	case taskListen:
 		addr := event.event.(ma.Multiaddr)
-		_, ok := s.listens[addr]
+		_, ok := s.listens[addr.String()]
 		if !ok {
 			s.once.Do(func() {
 				s.init = true
@@ -304,7 +305,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 			listen.Close()
 			s.handleSender <- ServiceEvent{Tag: ListenClose, Event: addr}
 		}
-		s.listens = make(map[ma.Multiaddr]manet.Listener)
+		s.listens = make(map[string]manet.Listener)
 
 		for id := range s.sessions {
 			s.sessionClose(id, external)
@@ -335,7 +336,7 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 		inner := event.event.(handshakeErrorInner)
 		if inner.ty.Name() == "Outbound" {
 			s.state.decrease()
-			delete(s.dialProtocols, inner.remoteAddr)
+			delete(s.dialProtocols, inner.remoteAddr.String())
 			s.handleSender <- ServiceError{Tag: DialerError, Event: DialerErrorInner{Tag: HandshakeError, Inner: inner.err, Addr: inner.remoteAddr}}
 		}
 
@@ -359,7 +360,7 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 	case dialError:
 		inner := event.event.(DialerErrorInner)
 		s.state.decrease()
-		delete(s.dialProtocols, inner.Addr)
+		delete(s.dialProtocols, inner.Addr.String())
 		s.handleSender <- ServiceError{Tag: DialerError, Event: inner}
 
 	case listenError:
@@ -367,10 +368,10 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 		inner := event.event.(ListenErrorInner)
 		s.handleSender <- ServiceError{Tag: ListenError, Event: inner}
 
-		_, ok := s.listens[inner.Addr]
+		_, ok := s.listens[inner.Addr.String()]
 		if ok {
 			deleteSlice(s.serviceContext.Listens, inner.Addr)
-			delete(s.listens, inner.Addr)
+			delete(s.listens, inner.Addr.String())
 			s.handleSender <- ServiceEvent{Tag: ListenClose, Event: inner.Addr}
 		}
 
@@ -400,11 +401,11 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 	var target TargetProtocol
 	var ok bool
 
-	target, ok = s.dialProtocols[remoteAddr]
+	target, ok = s.dialProtocols[remoteAddr.String()]
 	if !ok {
 		target = TargetProtocol{Tag: All}
 	}
-	delete(s.dialProtocols, remoteAddr)
+	delete(s.dialProtocols, remoteAddr.String())
 
 	if remotePubkey != nil {
 		// check if repeated connection
@@ -674,7 +675,7 @@ func (s *service) dial(addr ma.Multiaddr, target TargetProtocol) {
 		return
 	}
 
-	s.dialProtocols[addr] = target
+	s.dialProtocols[addr.String()] = target
 	go func() {
 		conn, err := multiDial(addr, s.config)
 		if err != nil {
@@ -715,7 +716,7 @@ func (s *service) listenerstart(inner listenStartInner) {
 	case 1:
 		s.handleSender <- ServiceEvent{Tag: ListenStarted, Event: inner.listener.address}
 		s.state.decrease()
-		s.listens[inner.listener.address] = inner.listener.listener
+		s.listens[inner.listener.address.String()] = inner.listener.listener
 		s.serviceContext.Listens = append(s.serviceContext.Listens, inner.listener.address)
 
 		listen := serviceListener{

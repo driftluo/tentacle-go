@@ -323,8 +323,9 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 		serviceContext: serviceContext,
 		state:          state,
 
-		listens:       make(map[ma.Multiaddr]manet.Listener),
-		dialProtocols: make(map[ma.Multiaddr]TargetProtocol),
+		// key: multiaddr.Multiaddr
+		listens:       make(map[string]manet.Listener),
+		dialProtocols: make(map[string]TargetProtocol),
 		config:        s.config,
 		nextSession:   SessionID(0),
 		beforeSends:   make(map[ProtocolID]BeforeSend),

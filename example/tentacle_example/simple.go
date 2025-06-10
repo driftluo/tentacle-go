@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/driftluo/tentacle-go"
@@ -12,14 +13,9 @@ import (
 )
 
 func deleteSlice(source []tentacle.SessionID, item tentacle.SessionID) []tentacle.SessionID {
-	j := 0
-	for _, val := range source {
-		if val != item {
-			source[j] = val
-			j++
-		}
-	}
-	return source[:j]
+	return slices.DeleteFunc(source, func(val tentacle.SessionID) bool {
+		return val == item
+	})
 }
 
 type pHandle struct {

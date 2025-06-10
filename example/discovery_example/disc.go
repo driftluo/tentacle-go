@@ -27,7 +27,7 @@ func main() {
 
 type nodeState struct {
 	score uint
-	addrs map[multiaddr.Multiaddr]bool
+	addrs map[string]bool
 }
 
 type simpleAddressManager struct {
@@ -39,12 +39,12 @@ func (s *simpleAddressManager) AddNewAddr(id tentacle.SessionID, addr multiaddr.
 	var ok bool
 	state, ok = s.peers[id]
 	if !ok {
-		state = &nodeState{score: 100, addrs: make(map[multiaddr.Multiaddr]bool)}
+		state = &nodeState{score: 100, addrs: make(map[string]bool)}
 		s.peers[id] = state
 	}
 	log.Printf("%s", addr)
 
-	state.addrs[addr] = true
+	state.addrs[addr.String()] = true
 }
 func (s *simpleAddressManager) AddNewAddrs(id tentacle.SessionID, addrs []multiaddr.Multiaddr) {
 	for _, addr := range addrs {
@@ -60,7 +60,7 @@ func (s *simpleAddressManager) Misbehave(id tentacle.SessionID, b discovery.Misb
 	var ok bool
 	state, ok = s.peers[id]
 	if !ok {
-		state = &nodeState{score: 100, addrs: make(map[multiaddr.Multiaddr]bool)}
+		state = &nodeState{score: 100, addrs: make(map[string]bool)}
 		s.peers[id] = state
 	}
 
@@ -81,7 +81,7 @@ func (s *simpleAddressManager) GetRandom(n int) []multiaddr.Multiaddr {
 			break
 		}
 		for addr := range state.addrs {
-			res = append(res, addr)
+			res = append(res, multiaddr.StringCast(addr))
 			i++
 			if i > n-1 {
 				break
@@ -102,11 +102,11 @@ func (s *simpleHandler) HandleEvent(ctx *tentacle.ServiceContext, event tentacle
 }
 
 func createMeta(pid tentacle.ProtocolID, start uint16) tentacle.ProtocolMeta {
-	addrs := make(map[multiaddr.Multiaddr]bool, 3333)
+	addrs := make(map[string]bool, 3333)
 
 	for i := 0; i < 3333; i++ {
 		addr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", start+uint16(i)))
-		addrs[addr] = true
+		addrs[addr.String()] = true
 	}
 
 	peers := make(map[tentacle.SessionID]*nodeState)

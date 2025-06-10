@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -108,14 +109,9 @@ func (k *addrKnown) remove(addr multiaddr.Multiaddr) {
 }
 
 func deleteSlice(source []multiaddr.Multiaddr, item multiaddr.Multiaddr) []multiaddr.Multiaddr {
-	j := 0
-	for _, val := range source {
-		if val != item {
-			source[j] = val
-			j++
-		}
-	}
-	return source[:j]
+	return slices.DeleteFunc(source, func(val multiaddr.Multiaddr) bool {
+		return val.Equal(item)
+	})
 }
 
 func updateTCPPort(addr multiaddr.Multiaddr, port uint16) multiaddr.Multiaddr {
