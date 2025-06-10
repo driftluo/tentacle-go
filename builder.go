@@ -371,18 +371,29 @@ func (h *serviceHandleProc) run() {
 		case <-time.After(100 * time.Microsecond):
 			continue
 		case event := <-h.recv:
-			if h.handle != nil {
-				ev, ok := event.(ServiceEvent)
-				if ok {
-					h.handle.HandleEvent(h.serviceContext, ev)
-					continue
+			ew, ok := event.(serviceEventWrapper)
+			if ok {
+				if h.handle != nil {
+					h.handle.HandleEvent(h.serviceContext, ew.event)
 				}
+				close(ew.waitSign)
+				continue
+			}
+			ev, ok := event.(ServiceEvent)
+			if ok {
+				if h.handle != nil {
+					h.handle.HandleEvent(h.serviceContext, ev)
+				}
+				continue
+			}
 
-				e, ok := event.(ServiceError)
-				if ok {
+			e, ok := event.(ServiceError)
+			if ok {
+				if h.handle != nil {
 					h.handle.HandleError(h.serviceContext, e)
 				}
 			}
+
 		}
 	}
 }

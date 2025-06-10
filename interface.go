@@ -24,6 +24,11 @@ type ServiceEvent struct {
 	Event interface{}
 }
 
+type serviceEventWrapper struct {
+	event    ServiceEvent
+	waitSign chan bool
+}
+
 // Name error tag name
 func (s *ServiceEvent) Name() string {
 	var r string

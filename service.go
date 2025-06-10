@@ -516,6 +516,11 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 		quickReceiver:   quick,
 	}
 
+	// session open event must be sent before the session handle is opened
+	wait := make(chan bool)
+	s.handleSender <- serviceEventWrapper{event: ServiceEvent{Tag: SessionOpen, Event: control.inner}, waitSign: wait}
+	<-wait
+
 	if ty.Name() == "Outbound" {
 		openAllProtos := func() {
 			for _, v := range s.protoclConfigs {
@@ -554,9 +559,6 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 
 	go session.runAccept()
 	go session.runReceiver()
-
-	s.handleSender <- ServiceEvent{Tag: SessionOpen, Event: control.inner}
-
 }
 
 func (s *service) sessionClose(id SessionID, source uint8) {
