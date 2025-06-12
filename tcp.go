@@ -24,7 +24,7 @@ func (m *tcpTransport) dial(addr multiaddr.Multiaddr) (manet.Conn, error) {
 		return nil, err
 	}
 
-	resChan := make(chan interface{})
+	resChan := make(chan any)
 	go func() {
 		var conn net.Conn
 		var erro error

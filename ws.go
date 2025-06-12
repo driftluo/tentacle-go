@@ -27,7 +27,7 @@ func (m *wsTransport) dial(addr multiaddr.Multiaddr) (manet.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	resChan := make(chan interface{})
+	resChan := make(chan any)
 
 	go func() {
 		var defaultDialer *websocket.Dialer

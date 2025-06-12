@@ -44,7 +44,7 @@ const (
 // As a firm believer in the type system, this is the last stubborn stand against the Go type!
 type sessionEvent struct {
 	tag   uint
-	event interface{}
+	event any
 }
 
 type protocolSelectErrorInner struct {

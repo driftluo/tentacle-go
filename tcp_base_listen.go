@@ -317,7 +317,7 @@ func (pd *protocolDetector) peek(n int) ([]byte, error) {
 	needed := n - len(pd.peeked)
 	buf := make([]byte, needed)
 
-	resChan := make(chan interface{})
+	resChan := make(chan any)
 	go func() {
 		for {
 			readCount, err := pd.conn.Read(buf)

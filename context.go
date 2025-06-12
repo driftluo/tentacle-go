@@ -7,6 +7,7 @@ import (
 
 	"github.com/driftluo/tentacle-go/secio"
 	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 // ErrBrokenPipe service has been shutdown
@@ -318,6 +319,11 @@ func (s *Service) SetSessionNotify(sid SessionID, pid ProtocolID, interval time.
 // RemoveSessionNotify remove a session notify token
 func (s *Service) RemoveSessionNotify(sid SessionID, pid ProtocolID, token uint64) error {
 	return s.send(serviceTask{tag: taskRemoveProtocolSessionNotify, event: taskRemoveProtocolSessionNotifyInner{sid: sid, pid: pid, token: token}})
+}
+
+// RawSession pass in an already established connection and let the protocol stack build on it
+func (s *Service) RawSession(conn manet.Conn, info RawSessionInfo) error {
+	return s.send(serviceTask{tag: taskRawSession, event: taskRawSessionInner{conn: conn, info: info}})
 }
 
 // Shutdown service,

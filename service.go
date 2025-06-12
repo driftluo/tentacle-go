@@ -119,7 +119,7 @@ type service struct {
 	nextSession   SessionID
 	beforeSends   map[ProtocolID]BeforeSend
 
-	handleSender chan<- interface{}
+	handleSender chan<- any
 
 	// Unified temporary storage
 	serviceProtoHandles map[ProtocolID]chan<- serviceProtocolEvent
@@ -207,6 +207,20 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 					send(control)
 				}
 			}
+		}
+
+	case taskRawSession:
+		inner := event.event.(taskRawSessionInner)
+		switch inner.info.ty {
+		case SessionType(0):
+			target := inner.info.info.(TargetProtocol)
+			s.state.increase()
+			s.dialProtocols[inner.conn.LocalAddr().String()] = target
+			go handshake(inner.conn, inner.info.ty, inner.conn.RemoteMultiaddr(), s.serviceContext.Key, s.config.timeout, nil, s.sessionEventChan)
+
+		case SessionType(1):
+			listen_addr := inner.info.info.(ma.Multiaddr)
+			go handshake(inner.conn, inner.info.ty, inner.conn.RemoteMultiaddr(), s.serviceContext.Key, s.config.timeout, listen_addr, s.sessionEventChan)
 		}
 
 	case taskProtocolOpen:

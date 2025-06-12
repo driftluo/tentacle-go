@@ -305,7 +305,7 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 	quickTask := make(chan serviceTask, s.config.channelSize)
 	task := make(chan serviceTask, s.config.channelSize)
 	sessionChan := make(chan sessionEvent, s.config.channelSize)
-	handleChan := make(chan interface{}, s.config.channelSize)
+	handleChan := make(chan any, s.config.channelSize)
 
 	shutdown := atomic.Value{}
 	shutdown.Store(false)
@@ -359,7 +359,7 @@ type serviceHandleProc struct {
 	handle         ServiceHandle
 	serviceContext *ServiceContext
 	shutdown       *atomic.Value
-	recv           <-chan interface{}
+	recv           <-chan any
 }
 
 func (h *serviceHandleProc) run() {

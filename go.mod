@@ -5,7 +5,6 @@ go 1.23.0
 toolchain go1.24.4
 
 require (
-	github.com/aead/ecdh v0.2.0
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/yamux v0.1.2

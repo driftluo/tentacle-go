@@ -18,7 +18,7 @@ const (
 // As a firm believer in the type system, this is the last stubborn stand against the Go type!
 type serviceProtocolEvent struct {
 	tag   uint
-	event interface{}
+	event any
 }
 
 type serviceProtocolConnectedInner struct {
@@ -154,7 +154,7 @@ const (
 // As a firm believer in the type system, this is the last stubborn stand against the Go type!
 type sessionProtocolEvent struct {
 	tag   uint
-	event interface{}
+	event any
 }
 
 type sessionProtocolStream struct {

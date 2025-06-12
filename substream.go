@@ -25,7 +25,7 @@ const (
 // As a firm believer in the type system, this is the last stubborn stand against the Go type!
 type protocolEvent struct {
 	tag   uint
-	event interface{}
+	event any
 }
 
 type subStreamOpenInner struct {
@@ -93,12 +93,12 @@ func (s *subStream) runWrite() {
 			if err != nil {
 				s.dead.Store(true)
 				s.errorClose(err)
-				break
+				return
 			}
 		case subStreamClose:
 			s.dead.Store(true)
 			s.closeStream()
-			break
+			return
 		}
 	}
 }

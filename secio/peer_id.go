@@ -2,8 +2,8 @@ package secio
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
-	"math/rand"
 
 	bs58 "github.com/mr-tron/base58/base58"
 	"github.com/multiformats/go-varint"
@@ -51,7 +51,7 @@ func (p PeerID) Bese58String() string {
 // IsKey compare peer id with key
 func (p *PeerID) IsKey(k Key) bool {
 	kp := k.PeerID()
-	return bytes.Compare(*p, kp) == 0
+	return bytes.Equal(*p, kp)
 }
 
 // Bytes return bytes

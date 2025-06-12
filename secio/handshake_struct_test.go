@@ -28,11 +28,11 @@ func TestDecodeEncodePropose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if bytes.Compare(decode.rand, pr.rand) != 0 {
+	if !bytes.Equal(decode.rand, pr.rand) {
 		t.Fatal("rand must eq")
 	}
 
-	if bytes.Compare(decode.pubkey, pr.pubkey) != 0 {
+	if !bytes.Equal(decode.pubkey, pr.pubkey) {
 		t.Fatal("pubkey must eq")
 	}
 
@@ -67,11 +67,11 @@ func TestDecodeEncodeExchange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if bytes.Compare(decode.epubkey, ex.epubkey) != 0 {
+	if !bytes.Equal(decode.epubkey, ex.epubkey) {
 		t.Fatal("epubkey must eq")
 	}
 
-	if bytes.Compare(decode.signature, ex.signature) != 0 {
+	if !bytes.Equal(decode.signature, ex.signature) {
 		t.Fatal("signature must eq")
 	}
 }

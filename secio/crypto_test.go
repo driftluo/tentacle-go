@@ -17,7 +17,7 @@ func TestDecodePanic(t *testing.T) {
 
 	encodeData = encryptCripher.Encrypt(plaintext)
 	decodeData, _ = decryptCripher.Decrypt(encodeData)
-	if bytes.Compare(plaintext, decodeData) != 0 {
+	if !bytes.Equal(plaintext, decodeData) {
 		panic("first time")
 	}
 
@@ -25,7 +25,7 @@ func TestDecodePanic(t *testing.T) {
 	encodeData = encryptCripher.Encrypt(plantext2)
 	decodeData, _ = decryptCripher.Decrypt(encodeData)
 
-	if bytes.Compare(plantext2, decodeData) != 0 {
+	if !bytes.Equal(plantext2, decodeData) {
 		panic("second time")
 	}
 }
@@ -39,8 +39,8 @@ func TestStretch(t *testing.T) {
 
 	stretchKey(key1, output)
 
-	if bytes.Compare(output, []byte{103, 144, 60, 199, 85, 145, 239, 71, 79, 198, 85, 164, 32, 53, 143, 205, 50, 48,
-		153, 10, 37, 32, 85, 1, 226, 61, 193, 1, 154, 120, 207, 80}) != 0 {
+	if !bytes.Equal(output, []byte{103, 144, 60, 199, 85, 145, 239, 71, 79, 198, 85, 164, 32, 53, 143, 205, 50, 48,
+		153, 10, 37, 32, 85, 1, 226, 61, 193, 1, 154, 120, 207, 80}) {
 		panic("stretch key1")
 	}
 
@@ -53,8 +53,8 @@ func TestStretch(t *testing.T) {
 
 	stretchKey(key2, output)
 
-	if bytes.Compare(output, []byte{39, 151, 182, 63, 180, 175, 224, 139, 42, 131, 130, 116, 55, 146, 62, 31, 157, 95,
-		217, 15, 73, 81, 10, 83, 243, 141, 64, 227, 103, 144, 99, 121}) != 0 {
+	if !bytes.Equal(output, []byte{39, 151, 182, 63, 180, 175, 224, 139, 42, 131, 130, 116, 55, 146, 62, 31, 157, 95,
+		217, 15, 73, 81, 10, 83, 243, 141, 64, 227, 103, 144, 99, 121}) {
 		panic("stretch key2")
 	}
 
@@ -67,8 +67,8 @@ func TestStretch(t *testing.T) {
 
 	stretchKey(key3, output)
 
-	if bytes.Compare(output, []byte{28, 39, 158, 206, 164, 16, 211, 194, 99, 43, 208, 36, 24, 141, 90, 93, 157, 236,
-		238, 111, 170, 0, 60, 11, 49, 174, 177, 121, 30, 12, 182, 25}) != 0 {
+	if !bytes.Equal(output, []byte{28, 39, 158, 206, 164, 16, 211, 194, 99, 43, 208, 36, 24, 141, 90, 93, 157, 236,
+		238, 111, 170, 0, 60, 11, 49, 174, 177, 121, 30, 12, 182, 25}) {
 		panic("stretch key3")
 	}
 }

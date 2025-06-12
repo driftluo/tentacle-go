@@ -48,7 +48,7 @@ func testEncodeDecode(ty string) error {
 		return err
 	}
 
-	if bytes.Compare(msg, data) != 0 {
+	if !bytes.Equal(msg, data) {
 		return fmt.Errorf("wr side fail, %s", ty)
 	}
 	return nil

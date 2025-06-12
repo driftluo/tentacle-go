@@ -63,14 +63,14 @@ const (
 type TargetProtocol struct {
 	// must use All/Single/Multi
 	Tag    uint8
-	Target interface{}
+	Target any
 }
 
 // TargetSession when sending a message, select the specified session
 type TargetSession struct {
 	// must use All/Single/Multi
 	Tag    uint8
-	Target interface{}
+	Target any
 }
 
 const (

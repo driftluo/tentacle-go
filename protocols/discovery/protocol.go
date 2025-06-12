@@ -17,7 +17,7 @@ const (
 
 type discoveryMessage struct {
 	tag   uint8
-	inner interface{}
+	inner any
 }
 
 func (d *discoveryMessage) encode() []byte {

@@ -37,12 +37,17 @@ func TestPeerIDRandomPeerID(t *testing.T) {
 	p1 := RandomPeerID()
 	p2 := RandomPeerID()
 
-	if bytes.Compare(p1, p2) == 0 {
+	if bytes.Equal(p1, p2) {
 		panic("first time")
 	}
 
 	var err error
 	_, err = PeerIDFromBytes(p1)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	_, err = PeerIDFromBytes(p2)
 
 	if err != nil {
@@ -54,7 +59,7 @@ func TestPeerIDTOBS58ThenBack(t *testing.T) {
 	p := RandomPeerID()
 	q, _ := PeerIDFromBese58(p.Bese58String())
 
-	if bytes.Compare(p, q) != 0 {
+	if !bytes.Equal(p, q) {
 		t.Fatal("fail to test peer id to bs58 then back")
 	}
 }
@@ -72,7 +77,7 @@ func TestPeerIDTOBytesThenBack(t *testing.T) {
 	p := RandomPeerID()
 	q, _ := PeerIDFromBytes(p.Bytes())
 
-	if bytes.Compare(p, q) != 0 {
+	if !bytes.Equal(p, q) {
 		t.Fatal("fail to test peer id to bytes then back")
 	}
 }

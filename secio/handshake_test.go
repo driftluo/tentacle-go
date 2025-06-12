@@ -44,7 +44,7 @@ func TestHandshake(t *testing.T) {
 
 	re := <-dataChan
 
-	if bytes.Compare(data, re) != 0 {
+	if !bytes.Equal(data, re) {
 		t.Fatal("handshake test fail")
 	}
 }
