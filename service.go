@@ -10,6 +10,7 @@ import (
 
 	"github.com/driftluo/tentacle-go/secio"
 	"github.com/hashicorp/yamux"
+	"github.com/multiformats/go-multiaddr"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 )
@@ -60,7 +61,27 @@ func (s *serviceListener) run() {
 				return
 			}
 			defer s.listener.Close()
-			s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: s.listener.Multiaddr(), Inner: err}}
+
+			_, host, _ := manet.DialArgs(s.listener.Multiaddr())
+			s.config.global.lock.Lock()
+			defer s.config.global.lock.Unlock()
+			upgradeMode := s.config.global.status[host]
+			mode := atomic.LoadUint32((*uint32)(upgradeMode))
+			switch mode {
+			case 0b1:
+				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: s.listener.Multiaddr(), Inner: err}}
+			case 0b10:
+				listen_addr := s.listener.Multiaddr()
+				wsaddr, _ := multiaddr.NewMultiaddr("/ws")
+				listen_addr = listen_addr.Encapsulate(wsaddr)
+				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: listen_addr, Inner: err}}
+			case 0b11:
+				listen_addr := s.listener.Multiaddr()
+				wsaddr, _ := multiaddr.NewMultiaddr("/ws")
+				listen_addr = listen_addr.Encapsulate(wsaddr)
+				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: s.listener.Multiaddr(), Inner: err}}
+				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: listen_addr, Inner: err}}
+			}
 			return
 		}
 		go handshake(conn, SessionType(1), conn.RemoteMultiaddr(), s.serviceContext.Key, s.config.timeout, s.listener.Multiaddr(), s.eventSender)
@@ -278,6 +299,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 		s.once.Do(func() {
 			s.init = true
 		})
+		s.state.decrease()
 		inner := event.event.(listenStartInner)
 		s.listenerstart(inner)
 
@@ -724,6 +746,9 @@ func (s *service) listen(addr ma.Multiaddr) {
 }
 
 func (s *service) listenerstart(inner listenStartInner) {
+	s.listens[inner.listener.address.String()] = inner.listener.listener
+	s.serviceContext.Listens = append(s.serviceContext.Listens, inner.listener.address)
+	s.state.increase()
 	switch inner.listener.enum {
 	// upgrade mode
 	case 0:
@@ -731,9 +756,6 @@ func (s *service) listenerstart(inner listenStartInner) {
 	// normal mode
 	case 1:
 		s.handleSender <- ServiceEvent{Tag: ListenStarted, Event: inner.listener.address}
-		s.state.decrease()
-		s.listens[inner.listener.address.String()] = inner.listener.listener
-		s.serviceContext.Listens = append(s.serviceContext.Listens, inner.listener.address)
 
 		listen := serviceListener{
 			shutdown:       &s.shutdown,
