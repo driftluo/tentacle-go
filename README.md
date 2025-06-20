@@ -28,7 +28,7 @@ Now you can see some data interaction information on the terminal.
 
 ```bash
 $ git clone https://github.com/nervosnetwork/tentacle.git
-$ RUST_LOG=simple=info,tentacle=debug cargo run --example simple --features molc -- server
+$ RUST_LOG=simple=info,tentacle=debug cargo run --example simple -- server
 ```
 
 On another terminal:
