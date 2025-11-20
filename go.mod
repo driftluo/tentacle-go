@@ -1,6 +1,6 @@
 module github.com/driftluo/tentacle-go
 
-go 1.23.0
+go 1.24.0
 
 toolchain go1.24.4
 
@@ -15,7 +15,7 @@ require (
 	github.com/multiformats/go-multiaddr v0.16.0
 	github.com/multiformats/go-varint v0.0.7
 	github.com/seiflotfy/cuckoofilter v0.0.0-20220411075957-e3b120b3f5fb
-	golang.org/x/crypto v0.39.0
+	golang.org/x/crypto v0.45.0
 )
 
 require (
@@ -30,6 +30,6 @@ require (
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/stretchr/testify v1.8.0 // indirect
 	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
