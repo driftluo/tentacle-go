@@ -24,34 +24,18 @@ func (m *tcpTransport) dial(addr multiaddr.Multiaddr) (manet.Conn, error) {
 		return nil, err
 	}
 
-	resChan := make(chan any)
-	go func() {
-		var conn net.Conn
-		var erro error
-
-		if m.bind != nil {
-			conn, erro = reuseport.Dial(netTy, *m.bind, host)
-			if erro != nil {
-				resChan <- erro
-			}
-			resChan <- conn
-		} else {
-			conn, erro = net.Dial(netTy, host)
-			if erro != nil {
-				resChan <- erro
-			}
-			resChan <- conn
-		}
-	}()
-
-	select {
-	case <-time.After(m.timeout):
-		return nil, ErrDialTimeout
-	case res := <-resChan:
-		conn, ok := res.(net.Conn)
-		if ok {
-			return manet.WrapNetConn(conn)
-		}
-		return nil, res.(error)
+	var conn net.Conn
+	if m.bind != nil {
+		conn, err = reuseport.DialTimeout(netTy, *m.bind, host, m.timeout)
+	} else {
+		conn, err = net.DialTimeout(netTy, host, m.timeout)
 	}
+	if err != nil {
+		if isTimeoutErr(err) {
+			return nil, ErrDialTimeout
+		}
+		return nil, err
+	}
+
+	return manet.WrapNetConn(conn)
 }

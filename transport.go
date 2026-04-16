@@ -9,10 +9,10 @@ func multiListen(addr multiaddr.Multiaddr, config serviceConfig) (*TcpBaseListen
 	switch findTy(addr) {
 	case tcp:
 		mode := upgradeMode(0b1)
-		return newTcpBaseListener(config.timeout, config.tcpBind, addr, &mode, config.global)
+		return newTcpBaseListener(config.timeout, config.tcpBind, addr, &mode, config.trustedProxies, config.global)
 	case ws:
 		mode := upgradeMode(0b10)
-		return newTcpBaseListener(config.timeout, config.tcpBind, addr, &mode, config.global)
+		return newTcpBaseListener(config.timeout, config.wsBind, addr, &mode, config.trustedProxies, config.global)
 	default:
 		return nil, ErrNotSupport
 	}

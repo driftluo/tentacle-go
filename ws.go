@@ -1,9 +1,9 @@
 package tentacle
 
 import (
+	"context"
 	"io"
 	"net"
-	"net/http"
 	"sync"
 	"time"
 
@@ -23,43 +23,38 @@ func newWSTransport(timeout time.Duration, bind *string) *wsTransport {
 }
 
 func (m *wsTransport) dial(addr multiaddr.Multiaddr) (manet.Conn, error) {
-	_, host, err := manet.DialArgs(addr)
+	netTy, host, err := manet.DialArgs(addr)
 	if err != nil {
 		return nil, err
 	}
-	resChan := make(chan any)
 
-	go func() {
-		var defaultDialer *websocket.Dialer
-		if m.bind != nil {
-			defaultDialer = &websocket.Dialer{
-				Proxy:            http.ProxyFromEnvironment,
-				HandshakeTimeout: 45 * time.Second,
-				NetDial: func(network, addr string) (net.Conn, error) {
-					return reuseport.Dial(network, *m.bind, addr)
-				},
-			}
-		} else {
-			defaultDialer = websocket.DefaultDialer
-		}
-
-		conn, _, err := defaultDialer.Dial("ws://"+host, nil)
+	dialer := *websocket.DefaultDialer
+	dialer.HandshakeTimeout = m.timeout
+	if m.bind != nil {
+		laddr, err := reuseport.ResolveAddr(netTy, *m.bind)
 		if err != nil {
-			resChan <- err
+			return nil, err
 		}
-		resChan <- conn
-	}()
-
-	select {
-	case <-time.After(m.timeout):
-		return nil, ErrDialTimeout
-	case res := <-resChan:
-		wsconn, ok := res.(*websocket.Conn)
-		if ok {
-			return newWsConn(wsconn), nil
+		netDialer := &net.Dialer{
+			Control:   reuseport.Control,
+			LocalAddr: laddr,
+			Timeout:   m.timeout,
 		}
-		return nil, res.(error)
+		dialer.NetDialContext = netDialer.DialContext
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), m.timeout)
+	defer cancel()
+
+	conn, _, err := dialer.DialContext(ctx, "ws://"+host, nil)
+	if err != nil {
+		if isTimeoutErr(err) {
+			return nil, ErrDialTimeout
+		}
+		return nil, err
+	}
+
+	return newWsConn(conn), nil
 }
 
 var _ net.Conn = &wsStream{}

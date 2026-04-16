@@ -1,9 +1,12 @@
 package tentacle
 
 import (
+	"bytes"
 	"errors"
 	"net"
 	"testing"
+
+	"github.com/libp2p/go-msgio"
 )
 
 func TestSelectVersion(t *testing.T) {
@@ -146,4 +149,60 @@ func TestSelectFail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestClientSelectReturnsWriteError(t *testing.T) {
+	boom := errors.New("write failed")
+	conn := &failingWriteReadWriter{
+		reader:   bytes.NewReader(encodeProtocolInfoFrame(t, ProtocolInfo{name: "test", supportVersion: []string{"1.0.0"}})),
+		writeErr: boom,
+	}
+
+	_, _, err := clientSelect(conn, ProtocolInfo{name: "test", supportVersion: []string{"1.0.0"}})
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected write error %v, got %v", boom, err)
+	}
+}
+
+func TestServerSelectReturnsWriteError(t *testing.T) {
+	boom := errors.New("write failed")
+	serverInfos := map[string]info{
+		"test": {
+			inner: ProtocolInfo{name: "test", supportVersion: []string{"1.0.0"}},
+			fn:    SelectVersion,
+		},
+	}
+	conn := &failingWriteReadWriter{
+		reader:   bytes.NewReader(encodeProtocolInfoFrame(t, ProtocolInfo{name: "test", supportVersion: []string{"1.0.0"}})),
+		writeErr: boom,
+	}
+
+	_, _, err := serverSelect(conn, serverInfos)
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected write error %v, got %v", boom, err)
+	}
+}
+
+func encodeProtocolInfoFrame(t *testing.T, protoInfo ProtocolInfo) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := msgio.NewWriter(&buf)
+	if err := writer.WriteMsg(protoInfo.encode()); err != nil {
+		t.Fatalf("encode protocol info frame: %v", err)
+	}
+	return buf.Bytes()
+}
+
+type failingWriteReadWriter struct {
+	reader   *bytes.Reader
+	writeErr error
+}
+
+func (c *failingWriteReadWriter) Read(b []byte) (int, error) {
+	return c.reader.Read(b)
+}
+
+func (c *failingWriteReadWriter) Write([]byte) (int, error) {
+	return 0, c.writeErr
 }

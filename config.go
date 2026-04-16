@@ -2,6 +2,7 @@ package tentacle
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"sync"
 	"time"
@@ -47,6 +48,7 @@ type serviceConfig struct {
 	channelSize         uint
 	tcpBind             *string
 	wsBind              *string
+	trustedProxies      []net.IP
 	global              *globalListenState
 }
 

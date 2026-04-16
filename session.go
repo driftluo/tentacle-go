@@ -101,6 +101,7 @@ type session struct {
 	context               *SessionContext
 	nextStreamID          streamID
 	protoStreams          map[ProtocolID]streamID
+	openedAnyStream       bool
 	serviceProtoSenders   map[ProtocolID]chan<- serviceProtocolEvent
 	sessionProtoSenders   map[ProtocolID]chan<- sessionProtocolEvent
 	sessionState          atomic.Value
@@ -272,8 +273,9 @@ func (s *session) handleStreamEvent(event protocolEvent) {
 		s.serviceSender <- sessionEvent{tag: protocolError, event: protocolErrorInner{id: s.context.Sid, pid: inner.pid, err: inner.err}}
 
 	case subStreamTimeOutCheck:
-		if len(s.subStreams) == 0 {
+		if !s.openedAnyStream && !s.context.closed.Load().(bool) && s.sessionState.Load().(uint8) == normal {
 			s.serviceSender <- sessionEvent{tag: sessionTimeout, event: s.context.Sid}
+			s.closeSession()
 		}
 	case stateChange:
 		return
@@ -293,9 +295,10 @@ func (s *session) handleSubstream(conn net.Conn) {
 	}
 
 	fn := generateFn(
-		func() (net.Conn, string, string, error) {
+		conn,
+		func(conn net.Conn) (string, string, error) {
 			name, version, err := serverSelect(conn, infos)
-			return conn, name, version, err
+			return name, version, err
 		},
 	)
 	s.selectProcedure(fn)
@@ -315,24 +318,30 @@ func (s *session) openProtoStream(name string) {
 	}
 
 	fn := generateFn(
-		func() (net.Conn, string, string, error) {
+		conn,
+		func(conn net.Conn) (string, string, error) {
 			name, version, err := clientSelect(conn, info)
-			return conn, name, version, err
+			return name, version, err
 		},
 	)
 	s.selectProcedure(fn)
 }
 
-func (s *session) selectProcedure(f func(chan<- protocolEvent)) {
+func (s *session) selectProcedure(f func(chan<- protocolEvent, <-chan struct{})) {
 	go func() {
-		resChan := make(chan protocolEvent)
+		resChan := make(chan protocolEvent, 1)
+		stop := make(chan struct{})
+		timer := time.NewTimer(s.timeout)
+		defer timer.Stop()
 
-		go f(resChan)
+		go f(resChan, stop)
 
 		select {
 		case event := <-resChan:
+			close(stop)
 			protectRun(func() { s.protoEventChan <- event }, nil)
-		case <-time.After(s.timeout):
+		case <-timer.C:
+			close(stop)
 			protectRun(func() { s.protoEventChan <- protocolEvent{tag: subStreamSelectError, event: ""} }, nil)
 		}
 	}()
@@ -375,6 +384,7 @@ func (s *session) openProtocol(event subStreamOpenInner) {
 
 	s.subStreams[s.nextStreamID] = protoChan
 	s.protoStreams[pid] = s.nextStreamID
+	s.openedAnyStream = true
 
 	s.nextStreamID++
 	go protoStream.runWrite()
@@ -414,21 +424,49 @@ func (s *session) closeAllProto() {
 	}
 }
 
-func generateFn(f func() (net.Conn, string, string, error)) func(chan<- protocolEvent) {
-	return func(resChan chan<- protocolEvent) {
-		conn, name, version, err := f()
-		if err != nil {
-			defer conn.Close()
-			protectRun(func() { resChan <- protocolEvent{tag: subStreamSelectError, event: name} }, nil)
-			return
+func generateFn(conn net.Conn, f func(net.Conn) (string, string, error)) func(chan<- protocolEvent, <-chan struct{}) {
+	return func(resChan chan<- protocolEvent, stop <-chan struct{}) {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+
+			name, version, err := f(conn)
+			if err != nil {
+				if conn != nil {
+					_ = conn.Close()
+				}
+				sendOrDropResult(resChan, stop, protocolEvent{tag: subStreamSelectError, event: name}, nil)
+				return
+			}
+
+			sendOrDropResult(
+				resChan,
+				stop,
+				protocolEvent{tag: subStreamOpen, event: subStreamOpenInner{name: name, version: version, conn: conn}},
+				cleanupProtocolEvent,
+			)
+		}()
+
+		select {
+		case <-stop:
+			if conn != nil {
+				_ = conn.Close()
+			}
+		case <-done:
 		}
-		protectRun(
-			func() {
-				resChan <- protocolEvent{tag: subStreamOpen, event: subStreamOpenInner{name: name, version: version, conn: conn}}
-			},
-			nil,
-		)
 	}
+}
+
+func cleanupProtocolEvent(event protocolEvent) {
+	if event.tag != subStreamOpen {
+		return
+	}
+
+	inner, ok := event.event.(subStreamOpenInner)
+	if !ok || inner.conn == nil {
+		return
+	}
+	_ = inner.conn.Close()
 }
 
 func initTimeoutCheck(sender chan<- protocolEvent, ti time.Duration) {

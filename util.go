@@ -1,7 +1,9 @@
 package tentacle
 
 import (
+	"context"
 	"errors"
+	"net"
 	"slices"
 
 	"github.com/driftluo/tentacle-go/secio"
@@ -12,6 +14,43 @@ func deleteSlice(source []ma.Multiaddr, item ma.Multiaddr) []ma.Multiaddr {
 	return slices.DeleteFunc(source, func(val ma.Multiaddr) bool {
 		return val.Equal(item)
 	})
+}
+
+func containsMultiaddr(source []ma.Multiaddr, item ma.Multiaddr) bool {
+	return slices.ContainsFunc(source, func(val ma.Multiaddr) bool {
+		return val.Equal(item)
+	})
+}
+
+func sendOrDropResult[T any](ch chan<- T, stop <-chan struct{}, result T, cleanup func(T)) {
+	select {
+	case <-stop:
+		if cleanup != nil {
+			cleanup(result)
+		}
+		return
+	default:
+	}
+
+	select {
+	case ch <- result:
+	case <-stop:
+		if cleanup != nil {
+			cleanup(result)
+		}
+	}
+}
+
+func isTimeoutErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func protectRun(entry func(), report func()) {

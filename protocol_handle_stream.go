@@ -36,15 +36,26 @@ type protocolSetNotifyInner struct {
 	token    uint64
 }
 
+type protocolNotifyState struct {
+	interval time.Duration
+	cancel   chan struct{}
+}
+
+type protocolNotifyTrigger struct {
+	token  uint64
+	cancel chan struct{}
+}
+
 type serviceProtocolStream struct {
 	handle        ServiceProtocol
 	handleContext ProtocolContext
 	sessions      map[SessionID]*SessionContext
-	notifys       map[uint64]time.Duration
+	notifys       map[uint64]protocolNotifyState
 	shutdown      *atomic.Value
+	stop          <-chan struct{}
 
 	eventReceiver <-chan serviceProtocolEvent
-	notifyChan    chan uint64
+	notifyChan    chan protocolNotifyTrigger
 	reportChan    chan<- sessionEvent
 }
 
@@ -60,20 +71,21 @@ func (s *serviceProtocolStream) run() {
 
 	for {
 		if s.shutdown.Load().(bool) {
-			defer protectRun(func() { close(s.notifyChan) }, nil)
-			break
+			return
 		}
 		select {
+		case <-s.stop:
+			return
 		case event, ok := <-s.eventReceiver:
 			if closed(ok) {
 				continue
 			}
 			s.handleEvent(event)
-		case token, ok := <-s.notifyChan:
+		case trigger, ok := <-s.notifyChan:
 			if closed(ok) {
 				continue
 			}
-			s.handleEvent(serviceProtocolEvent{tag: serviceProtocolNotify, event: token})
+			s.handleEvent(serviceProtocolEvent{tag: serviceProtocolNotify, event: trigger})
 		}
 	}
 }
@@ -113,31 +125,60 @@ func (s *serviceProtocolStream) handleEvent(event serviceProtocolEvent) {
 		protectRun(func() { s.handle.Received(s.handleContext.toRef(sessionctx), data.data) }, reportFn(sessionctx.Sid))
 
 	case serviceProtocolNotify:
-		token := event.event.(uint64)
+		trigger := event.event.(protocolNotifyTrigger)
+		notify, ok := s.notifys[trigger.token]
+		if !ok || s.shutdown.Load().(bool) || notify.cancel != trigger.cancel {
+			return
+		}
 
-		protectRun(func() { s.handle.Notify(&s.handleContext, token) }, reportFn(SessionID(0)))
-		s.setNotify(token)
+		protectRun(func() { s.handle.Notify(&s.handleContext, trigger.token) }, reportFn(SessionID(0)))
+		s.setNotify(trigger.token)
 
 	case serviceProtocolSetNotify:
 		notify := event.event.(protocolSetNotifyInner)
-		s.notifys[notify.token] = notify.interval
+		if existing, ok := s.notifys[notify.token]; ok {
+			close(existing.cancel)
+		}
+		s.notifys[notify.token] = protocolNotifyState{
+			interval: notify.interval,
+			cancel:   make(chan struct{}),
+		}
 		s.setNotify(notify.token)
 
 	case serviceProtocolRemoveNotify:
 		token := event.event.(uint64)
+		if notify, ok := s.notifys[token]; ok {
+			close(notify.cancel)
+		}
 		delete(s.notifys, token)
 	}
 }
 
 func (s *serviceProtocolStream) setNotify(token uint64) {
-	interval, ok := s.notifys[token]
+	notify, ok := s.notifys[token]
 	if !ok {
 		return
 	}
 
 	go func() {
-		<-time.After(interval)
-		protectRun(func() { s.notifyChan <- token }, nil)
+		timer := time.NewTimer(notify.interval)
+		defer timer.Stop()
+
+		select {
+		case <-s.stop:
+			return
+		case <-notify.cancel:
+			return
+		case <-timer.C:
+		}
+
+		select {
+		case <-s.stop:
+			return
+		case <-notify.cancel:
+			return
+		case s.notifyChan <- protocolNotifyTrigger{token: token, cancel: notify.cancel}:
+		}
 	}()
 }
 
@@ -161,15 +202,21 @@ type sessionProtocolStream struct {
 	handle        SessionProtocol
 	handleContext ProtocolContext
 	context       *SessionContext
-	notifys       map[uint64]time.Duration
+	notifys       map[uint64]protocolNotifyState
 	shutdown      bool
+	stop          chan struct{}
 
 	eventReceiver <-chan sessionProtocolEvent
-	notifyChan    chan uint64
+	notifyChan    chan protocolNotifyTrigger
 	reportChan    chan<- sessionEvent
 }
 
 func (s *sessionProtocolStream) run() {
+	defer func() {
+		if s.stop != nil {
+			close(s.stop)
+		}
+	}()
 	// In theory, this value will not appear, but if it does, it means that the channel was accidentally closed.
 	closed := func(ok bool) bool {
 		if !ok {
@@ -189,11 +236,11 @@ func (s *sessionProtocolStream) run() {
 				continue
 			}
 			s.handleEvent(event)
-		case token, ok := <-s.notifyChan:
+		case trigger, ok := <-s.notifyChan:
 			if closed(ok) {
 				continue
 			}
-			s.handleEvent(sessionProtocolEvent{tag: sessionProtocolNotify, event: token})
+			s.handleEvent(sessionProtocolEvent{tag: sessionProtocolNotify, event: trigger})
 		}
 	}
 }
@@ -219,29 +266,58 @@ func (s *sessionProtocolStream) handleEvent(event sessionProtocolEvent) {
 		protectRun(func() { s.handle.Received(s.handleContext.toRef(s.context), data) }, reportFn)
 
 	case sessionProtocolNotify:
-		token := event.event.(uint64)
-		s.handle.Notify(s.handleContext.toRef(s.context), token)
-		s.setNotify(token)
+		trigger := event.event.(protocolNotifyTrigger)
+		notify, ok := s.notifys[trigger.token]
+		if !ok || s.shutdown || s.context.closed.Load().(bool) || notify.cancel != trigger.cancel {
+			return
+		}
+		protectRun(func() { s.handle.Notify(s.handleContext.toRef(s.context), trigger.token) }, reportFn)
+		s.setNotify(trigger.token)
 
 	case sessionProtocolSetNotify:
 		notify := event.event.(protocolSetNotifyInner)
-		s.notifys[notify.token] = notify.interval
+		if existing, ok := s.notifys[notify.token]; ok {
+			close(existing.cancel)
+		}
+		s.notifys[notify.token] = protocolNotifyState{
+			interval: notify.interval,
+			cancel:   make(chan struct{}),
+		}
 		s.setNotify(notify.token)
 
 	case sessionProtocolRemoveNotify:
 		token := event.event.(uint64)
+		if notify, ok := s.notifys[token]; ok {
+			close(notify.cancel)
+		}
 		delete(s.notifys, token)
 	}
 }
 
 func (s *sessionProtocolStream) setNotify(token uint64) {
-	interval, ok := s.notifys[token]
+	notify, ok := s.notifys[token]
 	if !ok {
 		return
 	}
 
 	go func() {
-		<-time.After(interval)
-		protectRun(func() { s.notifyChan <- token }, nil)
+		timer := time.NewTimer(notify.interval)
+		defer timer.Stop()
+
+		select {
+		case <-s.stop:
+			return
+		case <-notify.cancel:
+			return
+		case <-timer.C:
+		}
+
+		select {
+		case <-s.stop:
+			return
+		case <-notify.cancel:
+			return
+		case s.notifyChan <- protocolNotifyTrigger{token: token, cancel: notify.cancel}:
+		}
 	}()
 }

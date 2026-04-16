@@ -115,7 +115,9 @@ func SelectVersion(local, remote []string) (string, error) {
 func clientSelect(conn io.ReadWriter, protoInfo ProtocolInfo) (string, string, error) {
 	socket := msgio.Combine(msgio.NewWriter(conn), msgio.NewReader(conn))
 
-	go func() { socket.WriteMsg(protoInfo.encode()) }()
+	if err := socket.WriteMsg(protoInfo.encode()); err != nil {
+		return "", "", err
+	}
 	msg, err := socket.ReadMsg()
 
 	if err != nil {
@@ -159,28 +161,34 @@ func serverSelect(conn io.ReadWriter, protoInfos map[string]info) (string, strin
 
 	local, ok := protoInfos[remote.name]
 
-	errResponse := func() {
+	errResponse := func() error {
 		res := new(ProtocolInfo)
 		res.name = remote.name
-		socket.WriteMsg(res.encode())
+		return socket.WriteMsg(res.encode())
 	}
 
 	if !ok {
-		errResponse()
+		if err := errResponse(); err != nil {
+			return remote.name, "", err
+		}
 		return remote.name, "", ErrProtocolNotMatch
 	}
 
 	version, err := local.fn(local.inner.supportVersion, remote.supportVersion)
 
 	if err != nil {
-		errResponse()
+		if writeErr := errResponse(); writeErr != nil {
+			return remote.name, "", writeErr
+		}
 		return remote.name, "", ErrVersionNotMatch
 	}
 
 	res := new(ProtocolInfo)
 	res.name = remote.name
 	res.supportVersion = []string{version}
-	socket.WriteMsg(res.encode())
+	if err := socket.WriteMsg(res.encode()); err != nil {
+		return remote.name, "", err
+	}
 
 	return remote.name, version, nil
 }

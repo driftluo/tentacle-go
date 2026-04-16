@@ -226,10 +226,42 @@ func (s *Service) Key() secio.PrivKey {
 	return s.key
 }
 
+func listenModeForAddr(addr ma.Multiaddr) upgradeMode {
+	switch findTy(addr) {
+	case ws:
+		return upgradeMode(0b10)
+	default:
+		return upgradeMode(0b1)
+	}
+}
+
+func (s *Service) hasRegisteredListen(addr ma.Multiaddr) bool {
+	_, host, err := manet.DialArgs(addr)
+	if err != nil {
+		return false
+	}
+
+	s.config.global.lock.Lock()
+	registered, ok := s.config.global.status[host]
+	s.config.global.lock.Unlock()
+	if !ok || registered == nil {
+		return false
+	}
+
+	requestedMode := uint32(listenModeForAddr(addr))
+	return atomic.LoadUint32((*uint32)(registered))&requestedMode == requestedMode
+}
+
 // Listen create a new listener, blocking here util listen finished and return listen addr
 func (s *Service) Listen(addr ma.Multiaddr) (ma.Multiaddr, error) {
 	if !isSupport(addr) {
 		return nil, ErrNotSupport
+	}
+	if s.closed.Load().(bool) {
+		return nil, ErrBrokenPipe
+	}
+	if s.hasRegisteredListen(addr) {
+		return addr, nil
 	}
 	listener, err := multiListen(addr, *s.config)
 	if err != nil {
@@ -239,6 +271,9 @@ func (s *Service) Listen(addr ma.Multiaddr) (ma.Multiaddr, error) {
 	err = s.quickSend(serviceTask{tag: taskListenStart, event: listenStartInner{listener: listener}})
 
 	if err != nil {
+		if listener != nil && listener.listener != nil {
+			_ = listener.listener.Close()
+		}
 		return nil, err
 	}
 	s.state.increase()

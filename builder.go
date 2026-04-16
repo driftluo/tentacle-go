@@ -199,7 +199,11 @@ func DefaultServiceBuilder() *ServiceBuilder {
 			channelSize:         128,
 			tcpBind:             nil,
 			wsBind:              nil,
-			global:              &globalListenState{status: make(map[string]*upgradeMode), lock: sync.Mutex{}},
+			trustedProxies: []net.IP{
+				append(net.IP(nil), net.IPv4(127, 0, 0, 1)...),
+				append(net.IP(nil), net.IPv6loopback...),
+			},
+			global: &globalListenState{status: make(map[string]*upgradeMode), lock: sync.Mutex{}},
 		},
 	}
 }
@@ -253,6 +257,20 @@ func (s *ServiceBuilder) MaxConnectionNumber(num uint) *ServiceBuilder {
 // Default is 128
 func (s *ServiceBuilder) ChannelSize(size uint) *ServiceBuilder {
 	s.config.channelSize = size
+	return s
+}
+
+// TrustedProxies replaces the list of trusted proxy IPs used for PROXY protocol
+// and X-Forwarded-For/X-Forwarded-Port parsing on inbound connections.
+func (s *ServiceBuilder) TrustedProxies(proxies []net.IP) *ServiceBuilder {
+	trusted := make([]net.IP, 0, len(proxies))
+	for _, proxy := range proxies {
+		if proxy == nil {
+			continue
+		}
+		trusted = append(trusted, append(net.IP(nil), proxy...))
+	}
+	s.config.trustedProxies = trusted
 	return s
 }
 
@@ -337,6 +355,7 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 		sessions:            make(map[SessionID]sessionController),
 		taskReceiver:        task,
 		quickTaskReceiver:   quickTask,
+		handleStop:          make(chan struct{}),
 
 		shutdown: shutdown,
 	}
@@ -344,8 +363,8 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 	handleProc := serviceHandleProc{
 		handle:         handle,
 		serviceContext: serviceContext,
-		shutdown:       &service.shutdown,
 		recv:           handleChan,
+		stop:           service.handleStop,
 	}
 
 	go handleProc.run()
@@ -358,18 +377,15 @@ func (s *ServiceBuilder) Build(handle ServiceHandle) *Service {
 type serviceHandleProc struct {
 	handle         ServiceHandle
 	serviceContext *ServiceContext
-	shutdown       *atomic.Value
 	recv           <-chan any
+	stop           <-chan struct{}
 }
 
 func (h *serviceHandleProc) run() {
 	for {
-		if h.shutdown.Load().(bool) {
-			break
-		}
 		select {
-		case <-time.After(100 * time.Microsecond):
-			continue
+		case <-h.stop:
+			return
 		case event := <-h.recv:
 			ew, ok := event.(serviceEventWrapper)
 			if ok {

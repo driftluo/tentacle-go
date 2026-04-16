@@ -60,49 +60,91 @@ func (s *serviceListener) run() {
 			if s.shutdown.Load().(bool) {
 				return
 			}
+			if errors.Is(err, errListenerClosed) {
+				return
+			}
 			defer s.listener.Close()
 
-			_, host, _ := manet.DialArgs(s.listener.Multiaddr())
-			s.config.global.lock.Lock()
-			defer s.config.global.lock.Unlock()
-			upgradeMode := s.config.global.status[host]
-			mode := atomic.LoadUint32((*uint32)(upgradeMode))
+			listenAddr := s.listener.Multiaddr()
+			mode, ok := s.lookupMode(listenAddr)
+			if !ok {
+				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: listenAddr, Inner: err}}
+				return
+			}
 			switch mode {
 			case 0b1:
-				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: s.listener.Multiaddr(), Inner: err}}
+				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: listenAddr, Inner: err}}
 			case 0b10:
-				listen_addr := s.listener.Multiaddr()
+				listen_addr := listenAddr
 				wsaddr, _ := multiaddr.NewMultiaddr("/ws")
 				listen_addr = listen_addr.Encapsulate(wsaddr)
 				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: listen_addr, Inner: err}}
 			case 0b11:
-				listen_addr := s.listener.Multiaddr()
+				listen_addr := listenAddr
 				wsaddr, _ := multiaddr.NewMultiaddr("/ws")
 				listen_addr = listen_addr.Encapsulate(wsaddr)
-				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: s.listener.Multiaddr(), Inner: err}}
+				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: listenAddr, Inner: err}}
 				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: listen_addr, Inner: err}}
+			default:
+				s.eventSender <- sessionEvent{tag: listenError, event: ListenErrorInner{Tag: IoError, Addr: listenAddr, Inner: err}}
 			}
 			return
 		}
-		go handshake(conn, SessionType(1), conn.RemoteMultiaddr(), s.serviceContext.Key, s.config.timeout, s.listener.Multiaddr(), s.eventSender)
+		listenAddr := conn.LocalMultiaddr()
+		if listenAddr == nil {
+			listenAddr = s.listener.Multiaddr()
+		}
+		go handshake(conn, SessionType(1), conn.RemoteMultiaddr(), s.serviceContext.Key, s.config.timeout, listenAddr, s.eventSender)
 	}
+}
+
+func (s *serviceListener) lookupMode(addr multiaddr.Multiaddr) (uint32, bool) {
+	_, host, err := manet.DialArgs(addr)
+	if err != nil {
+		return 0, false
+	}
+
+	s.config.global.lock.Lock()
+	upgradeMode, ok := s.config.global.status[host]
+	s.config.global.lock.Unlock()
+	if !ok || upgradeMode == nil {
+		return 0, false
+	}
+
+	return atomic.LoadUint32((*uint32)(upgradeMode)), true
 }
 
 func handshake(conn manet.Conn, ty SessionType, remoteAddr ma.Multiaddr, selfKey secio.PrivKey, timeout time.Duration, listenAddr ma.Multiaddr, report chan<- sessionEvent) {
 	// secio or not
 	if selfKey != nil {
-		resChan := make(chan sessionEvent)
+		resChan := make(chan sessionEvent, 1)
+		stop := make(chan struct{})
 		go func() {
 			secConn, err := secio.NewConfig(selfKey).Handshake(conn)
 			if err != nil {
-				resChan <- sessionEvent{tag: handshakeError, event: handshakeErrorInner{ty: ty, err: err, remoteAddr: remoteAddr}}
+				sendOrDropResult(
+					resChan,
+					stop,
+					sessionEvent{tag: handshakeError, event: handshakeErrorInner{ty: ty, err: err, remoteAddr: remoteAddr}},
+					nil,
+				)
 				return
 			}
-			resChan <- sessionEvent{tag: handshakeSuccess, event: handshakeSuccessInner{ty: ty, conn: secConn, remoteAddr: remoteAddr, listenAddr: listenAddr, remotePubkey: secConn.RemotePub()}}
+			sendOrDropResult(
+				resChan,
+				stop,
+				sessionEvent{tag: handshakeSuccess, event: handshakeSuccessInner{ty: ty, conn: secConn, remoteAddr: remoteAddr, listenAddr: listenAddr, remotePubkey: secConn.RemotePub()}},
+				cleanupHandshakeEvent,
+			)
 		}()
 
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+
 		select {
-		case <-time.After(timeout):
+		case <-timer.C:
+			close(stop)
+			_ = conn.Close()
 			protectRun(
 				func() {
 					report <- sessionEvent{tag: handshakeError, event: handshakeErrorInner{ty: ty, err: ErrHandshakeTimeout, remoteAddr: remoteAddr}}
@@ -110,6 +152,7 @@ func handshake(conn manet.Conn, ty SessionType, remoteAddr ma.Multiaddr, selfKey
 				nil,
 			)
 		case event := <-resChan:
+			close(stop)
 			protectRun(func() { report <- event }, nil)
 		}
 
@@ -121,6 +164,18 @@ func handshake(conn manet.Conn, ty SessionType, remoteAddr ma.Multiaddr, selfKey
 			nil,
 		)
 	}
+}
+
+func cleanupHandshakeEvent(event sessionEvent) {
+	if event.tag != handshakeSuccess {
+		return
+	}
+
+	inner, ok := event.event.(handshakeSuccessInner)
+	if !ok || inner.conn == nil {
+		return
+	}
+	_ = inner.conn.Close()
 }
 
 type service struct {
@@ -152,6 +207,8 @@ type service struct {
 	// Distribute to sessions
 	sessions map[SessionID]sessionController
 
+	handleStop chan struct{}
+
 	// External event receiver
 	taskReceiver      <-chan serviceTask
 	quickTaskReceiver <-chan serviceTask
@@ -163,6 +220,11 @@ type service struct {
 }
 
 func (s *service) run() {
+	defer func() {
+		if s.handleStop != nil {
+			close(s.handleStop)
+		}
+	}()
 	s.initServiceProtoHandles()
 	for {
 		if len(s.sessions) == 0 && len(s.listens) == 0 && s.state.isShutdown() && s.init {
@@ -287,7 +349,7 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 	case taskListen:
 		addr := event.event.(ma.Multiaddr)
 		_, ok := s.listens[addr.String()]
-		if !ok {
+		if !ok && !containsMultiaddr(s.serviceContext.Listens, addr) {
 			s.once.Do(func() {
 				s.init = true
 			})
@@ -337,11 +399,15 @@ func (s *service) handleServiceTask(event serviceTask, priority uint8) {
 
 	case taskShutdown:
 		s.state.preShutdown()
-		for addr, listen := range s.listens {
+		listenAddrs := append([]ma.Multiaddr(nil), s.serviceContext.Listens...)
+		for _, listen := range s.listens {
 			listen.Close()
+		}
+		for _, addr := range listenAddrs {
 			s.handleSender <- ServiceEvent{Tag: ListenClose, Event: addr}
 		}
 		s.listens = make(map[string]manet.Listener)
+		s.serviceContext.Listens = nil
 
 		for id := range s.sessions {
 			s.sessionClose(id, external)
@@ -404,9 +470,8 @@ func (s *service) handleSessionEvent(event sessionEvent) {
 		inner := event.event.(ListenErrorInner)
 		s.handleSender <- ServiceError{Tag: ListenError, Event: inner}
 
-		_, ok := s.listens[inner.Addr.String()]
-		if ok {
-			deleteSlice(s.serviceContext.Listens, inner.Addr)
+		if containsMultiaddr(s.serviceContext.Listens, inner.Addr) {
+			s.serviceContext.Listens = deleteSlice(s.serviceContext.Listens, inner.Addr)
 			delete(s.listens, inner.Addr.String())
 			s.handleSender <- ServiceEvent{Tag: ListenClose, Event: inner.Addr}
 		}
@@ -593,6 +658,7 @@ func (s *service) sessionOpen(conn net.Conn, remotePubkey secio.PubKey, remoteAd
 		}
 	}
 
+	go initTimeoutCheck(session.protoEventChan, session.timeout)
 	go session.runAccept()
 	go session.runReceiver()
 }
@@ -666,11 +732,12 @@ func (s *service) sessionHandlesOpen(sid SessionID) {
 				handle:        v.sessionHandleFn(),
 				handleContext: pctx,
 				context:       control.inner,
-				notifys:       make(map[uint64]time.Duration),
+				notifys:       make(map[uint64]protocolNotifyState),
 				shutdown:      false,
+				stop:          make(chan struct{}),
 
 				eventReceiver: sessionChan,
-				notifyChan:    make(chan uint64, 16),
+				notifyChan:    make(chan protocolNotifyTrigger, 16),
 				reportChan:    s.sessionEventChan,
 			}
 			go stream.run()
@@ -690,11 +757,12 @@ func (s *service) initServiceProtoHandles() {
 				handle:        v.serviceHandle,
 				handleContext: pctx,
 				shutdown:      &s.shutdown,
+				stop:          s.handleStop,
 				sessions:      make(map[SessionID]*SessionContext),
-				notifys:       make(map[uint64]time.Duration),
+				notifys:       make(map[uint64]protocolNotifyState),
 
 				eventReceiver: serviceChan,
-				notifyChan:    make(chan uint64, 16),
+				notifyChan:    make(chan protocolNotifyTrigger, 16),
 				reportChan:    s.sessionEventChan,
 			}
 
@@ -746,7 +814,9 @@ func (s *service) listen(addr ma.Multiaddr) {
 }
 
 func (s *service) listenerstart(inner listenStartInner) {
-	s.listens[inner.listener.address.String()] = inner.listener.listener
+	if inner.listener.listener != nil {
+		s.listens[inner.listener.address.String()] = inner.listener.listener
+	}
 	s.serviceContext.Listens = append(s.serviceContext.Listens, inner.listener.address)
 	s.state.increase()
 	switch inner.listener.enum {

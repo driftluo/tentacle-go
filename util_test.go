@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/driftluo/tentacle-go/secio"
 	ma "github.com/multiformats/go-multiaddr"
@@ -51,6 +52,92 @@ func TestDeleteSlice(t *testing.T) {
 		if slices.Equal(v, m1) {
 			t.Fatal("not delete")
 		}
+	}
+}
+
+func TestContainsMultiaddr(t *testing.T) {
+	m1, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1336/")
+	m2, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1332/")
+	m3, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/133/")
+
+	a := []ma.Multiaddr{m1, m2}
+
+	if !containsMultiaddr(a, m1) {
+		t.Fatal("expected containsMultiaddr to find existing address")
+	}
+	if containsMultiaddr(a, m3) {
+		t.Fatal("expected containsMultiaddr to reject missing address")
+	}
+}
+
+func TestSendOrDropResultRunsCleanupWhenStopped(t *testing.T) {
+	ch := make(chan string, 1)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	cleaned := make(chan string, 1)
+	close(stop)
+
+	go func() {
+		sendOrDropResult(ch, stop, "late", func(v string) {
+			cleaned <- v
+		})
+		close(done)
+	}()
+
+	select {
+	case got := <-cleaned:
+		if got != "late" {
+			t.Fatalf("expected cleanup value late, got %q", got)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for dropped result cleanup")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("sendOrDropResult blocked after cleanup")
+	}
+
+	select {
+	case got := <-ch:
+		t.Fatalf("expected dropped value to stay out of channel, got %q", got)
+	default:
+	}
+}
+
+func TestSendOrDropResultSendsValue(t *testing.T) {
+	ch := make(chan string, 1)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	cleaned := make(chan struct{}, 1)
+
+	go func() {
+		sendOrDropResult(ch, stop, "ok", func(string) {
+			cleaned <- struct{}{}
+		})
+		close(done)
+	}()
+
+	select {
+	case got := <-ch:
+		if got != "ok" {
+			t.Fatalf("expected ok, got %q", got)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for delivered result")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("sendOrDropResult blocked after send")
+	}
+
+	select {
+	case <-cleaned:
+		t.Fatal("unexpected cleanup for delivered result")
+	default:
 	}
 }
 
